@@ -1,0 +1,316 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\emergencystretch=3em
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true
+}
+\lstset{style=code}
+
+\title{Progress Report: Agentic Python Verifier}
+\author{Harry Wang \and Eric Shang Nan Chen}
+\date{May 6, 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Project Overview}
+
+The project is a proof-driven code generation pipeline for Python. Instead of
+generating Python first and checking it afterward, the system first asks a
+language-model synthesis agent to produce a PlusCal algorithm, a candidate
+inductive invariant, and a target safety property from a natural-language
+requirement. The formal verifier then translates the PlusCal module to TLA+,
+checks three proof obligations with TLC, and returns structured
+counterexamples to the synthesis agent when a proof fails. Only after all
+three obligations pass does a refinement agent translate the verified PlusCal
+artifact into executable Python with runtime assertions derived from the
+verified invariant.
+
+The current repository contains a working first pipeline implementation,
+command-line interface, formal checking layer, language-model tool contracts,
+offline tests, integration-test scaffolding, and two example benchmark
+requirements.
+
+\section{Implemented Pipeline}
+
+The implemented pipeline is centered in \texttt{src/main.py}. It accepts a
+\texttt{TaskRequest}, loads runtime settings, creates output directories, and
+then runs the following loop:
+
+\begin{enumerate}
+  \item The synthesis agent proposes a tuple
+  \texttt{(PlusCal, Inv, Property, finite constants)}.
+  \item The verifier checks initiation, consecution, and property implication.
+  \item If any obligation fails, the failing TLC result is serialized and sent
+  back to the repair agent through Anthropic tool-result history.
+  \item If all obligations pass, the refinement agent emits a Python module.
+  \item Verified artifacts are written to \texttt{generated/tla} and
+  \texttt{generated/python}, with per-iteration scratch files in
+  \texttt{generated/work}.
+\end{enumerate}
+
+The pipeline returns a structured \texttt{PipelineResult} with either
+\texttt{verified} or \texttt{unverified} status. Verification failures do not
+silently pass through to Python generation; Python is emitted only when the
+full proof bundle passes.
+
+\section{Formal Verification Progress}
+
+The verifier in \texttt{src/agents/verifier.py} implements three model-checking
+obligations for a proposal with initial predicate \texttt{Init}, transition
+relation \texttt{Next}, inductive invariant \texttt{Inv}, and target property
+\texttt{Property}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{p{0.18\linewidth}p{0.24\linewidth}p{0.48\linewidth}}
+\toprule
+Obligation & Mathematical Form & TLC Encoding \\
+\midrule
+Initiation & \texttt{Init => Inv} &
+\texttt{SPECIFICATION Spec}, \texttt{INVARIANT Inv} \\
+Consecution & \texttt{Inv /\ Next => Inv'} &
+Auxiliary \texttt{IInit == Inv}, \texttt{ISpec == IInit /\ [][Next]\_vars} \\
+Property implication & \texttt{Inv => Property} &
+Auxiliary \texttt{PInit == Inv}, unchanged-step \texttt{PSpec} \\
+\bottomrule
+\end{tabular}
+\caption{Implemented proof obligations.}
+\end{table}
+
+The \texttt{src/formal/tlc\_config.py} module generates the TLC configuration
+files and the two auxiliary TLA+ modules used for consecution and property
+checking. The property check enumerates all invariant states by using
+\texttt{PInit == Inv} and an unchanged transition relation, then asks TLC to
+check \texttt{Property} as an invariant over those states.
+
+The implementation also wraps the two required TLA+ tools:
+
+\begin{itemize}
+  \item \texttt{src/formal/pcal\_translator.py} invokes
+  \texttt{pcal.trans} from \texttt{tla2tools.jar} and checks that a translation
+  block was inserted.
+  \item \texttt{src/formal/tla\_runner.py} invokes \texttt{tlc2.TLC} with a
+  configurable timeout, automatic workers, and deadlock checking enabled.
+\end{itemize}
+
+\section{Counterexample Feedback}
+
+Structured counterexample feedback is implemented in
+\texttt{src/formal/counterexample\_parser.py}. The parser classifies TLC runs
+as \texttt{passed}, \texttt{failed}, \texttt{timeout}, or \texttt{error}. For
+invariant and initial-state violations it extracts:
+
+\begin{itemize}
+  \item the failing obligation, such as \texttt{consec};
+  \item the violated predicate, such as \texttt{Inv};
+  \item each trace state index and action;
+  \item variable assignments from TLC trace lines.
+\end{itemize}
+
+This information is then serialized by \texttt{SynthesisAgent.repair}. For
+example, a consecution failure may be sent back to the model as:
+
+\begin{lstlisting}
+- consec: FAILED
+    violated_predicate: Inv
+    State 1 <Initial predicate>: counter=11
+\end{lstlisting}
+
+This is a major milestone because the system is not limited to one-shot
+generation. It has a repair loop with formal counterexamples as the feedback
+signal.
+
+\section{Language-Model Agent Progress}
+
+The language-model boundary is implemented with explicit Anthropic tool
+schemas in \texttt{src/llm/tools.py}. Three tools are currently defined:
+
+\begin{itemize}
+  \item \texttt{propose\_pluscal\_with\_invariant}: emits the initial PlusCal
+  module, invariant, property, and finite constant domains.
+  \item \texttt{repair\_after\_counterexample}: emits a revised proposal after
+  a failed proof obligation.
+  \item \texttt{emit\_python\_module}: emits Python source and an assertion map
+  from invariant clauses to Python checks.
+\end{itemize}
+
+The prompt layer in \texttt{src/llm/prompts.py} gives the synthesis model
+specific formal-methods constraints. In particular, it requires small finite
+constant domains, explicit variable membership in \texttt{Inv}, and explicit
+enumeration of the PlusCal \texttt{pc} variable. These details are important
+because the consecution and property checks use \texttt{Inv} as an initial
+state predicate, so TLC must be able to enumerate states from the invariant
+alone.
+
+The Anthropic client wrapper in \texttt{src/llm/anthropic\_client.py} supports
+prompt caching through ephemeral cache-control system blocks and retries once
+on overloaded-model errors using a fallback model.
+
+\section{Python Refinement Progress}
+
+The refinement stage is implemented in \texttt{src/agents/refine\_agent.py}.
+It extracts top-level conjuncts from the verified invariant and passes them to
+the refinement model. The emitted Python module is required to include runtime
+assertions at the entry and exit of state-mutating functions and to provide an
+\texttt{assertion\_map} for traceability.
+
+For example, given this invariant:
+
+\begin{lstlisting}
+Inv == counter >= 0
+    /\ counter <= 10
+    /\ counter \in 0..10
+\end{lstlisting}
+
+the refinement prompt sends the model the individual conjuncts:
+
+\begin{lstlisting}
+- counter >= 0
+- counter <= 10
+- counter \in 0..10
+\end{lstlisting}
+
+The intended Python result is an implementation that carries corresponding
+assertions, such as:
+
+\begin{lstlisting}[language=Python]
+def increment(counter: int) -> int:
+    assert counter >= 0
+    assert counter <= 10
+    if counter < 10:
+        counter += 1
+    assert counter >= 0
+    assert counter <= 10
+    return counter
+\end{lstlisting}
+
+\section{Examples}
+
+Two benchmark prompts have been added in the \texttt{examples} directory:
+
+\begin{lstlisting}
+Implement a bounded counter from 0 to 10.
+\end{lstlisting}
+
+\begin{lstlisting}
+Implement a bank transfer between two accounts that never allows a negative
+balance and preserves the total sum of money.
+\end{lstlisting}
+
+The test fixtures include a good bounded-counter TLA+ module and a deliberately
+bad invariant module. The good fixture uses:
+
+\begin{lstlisting}
+Inv == /\ counter \in 0..MaxValue
+       /\ pc \in {"Increment", "Done"}
+
+Property == counter <= MaxValue
+\end{lstlisting}
+
+This shows the expected invariant style: the counter is bounded by explicit set
+membership and the PlusCal control state is enumerated. The bad fixture uses
+\texttt{counter \textbackslash in 0..(MaxValue-1)}, which is too strong after
+the final increment. The integration test expects this module to fail an
+initiation or consecution obligation with a counterexample.
+
+\section{Command-Line Interface}
+
+A Typer-based CLI is implemented in \texttt{src/cli.py}. It exposes:
+
+\begin{itemize}
+  \item \texttt{--output} for generated artifacts;
+  \item \texttt{--max-iterations} with bounds from 1 to 20;
+  \item \texttt{--model} for overriding the Anthropic model;
+  \item \texttt{--verbose} for debug logging.
+\end{itemize}
+
+The CLI uses distinct exit codes: \texttt{0} for verified output, \texttt{1}
+for exhausted repair iterations, and \texttt{2} for missing runtime
+configuration such as \texttt{ANTHROPIC\_API\_KEY} or \texttt{TLA2TOOLS\_JAR}.
+
+\section{Testing Progress}
+
+The repository includes focused unit tests and mocked pipeline tests:
+
+\begin{itemize}
+  \item model validation tests for task requests, synthesis proposals,
+  constants, repair proposals, and proof bundles;
+  \item configuration tests for missing API keys and TLA+ tools;
+  \item CLI smoke tests for help text and fail-fast configuration errors;
+  \item counterexample parser tests using captured TLC output fixtures;
+  \item TLC config generation tests for initiation, consecution, and property
+  configurations;
+  \item mocked synthesis-agent tests for tool-call extraction and repair
+  feedback serialization;
+  \item mocked refinement-agent tests for invariant-conjunct extraction;
+  \item mocked end-to-end pipeline tests covering first-try success, repair
+  then success, and exhausted iterations;
+  \item gated integration tests for running real TLC against known good and
+  known bad bounded-counter fixtures.
+\end{itemize}
+
+The offline test suite is designed to run without an Anthropic API key or
+\texttt{tla2tools.jar}; the external dependencies are mocked at the boundary.
+The TLC integration tests are explicitly marked and skipped unless a valid
+TLA+ tools jar is configured.
+
+\section{Current Limitations}
+
+The prototype currently targets finite-domain inductive checking with TLC.
+Unbounded inductive proofs would require a theorem prover such as TLAPS, which
+is outside the current scope. The invariant must be enumerable as an initial
+state predicate, which means every state variable needs an explicit finite
+membership constraint. The refinement step depends on the language model to
+translate verified PlusCal into faithful Python, so the runtime assertions
+provide an additional guard but do not replace independent Python-level tests.
+
+There is also inherent nondeterminism in live LLM calls. The current design
+mitigates this by making the verified TLA+ module and proof results the trusted
+intermediate artifact, while the repository tests mock the Anthropic boundary
+for repeatability.
+
+\section{Next Steps}
+
+The next development milestones are:
+
+\begin{enumerate}
+  \item Run live end-to-end examples with a real Anthropic API key and
+  \texttt{tla2tools.jar}, then save representative generated artifacts.
+  \item Add Python-level tests for refined modules so generated runtime
+  assertions are exercised after formal verification succeeds.
+  \item Expand the benchmark set beyond bounded counters and bank transfers.
+  \item Improve invariant-conjunct extraction so it handles nested TLA+
+  expressions more robustly than the current regular-expression split.
+  \item Add reporting or logs that summarize each repair iteration and the
+  obligation that drove it.
+\end{enumerate}
+
+\section{Summary}
+
+Substantial progress has been made toward a complete proof-driven Python code
+generation system. The project now has a working architecture for
+PlusCal/invariant co-synthesis, three formal TLC proof obligations, structured
+counterexample-driven repair, verified-artifact output, Python refinement with
+invariant-derived assertions, a usable CLI, examples, and broad offline test
+coverage. The remaining work is mainly in live evaluation, broader benchmarks,
+and hardening the refinement and reporting layers.
+
+\end{document}
