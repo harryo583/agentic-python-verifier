@@ -25,10 +25,13 @@ def generate(
     verify: bool = typer.Option(True, "--verify/--no-verify", help="Run verification."),
     output: Optional[str] = typer.Option(None, "--output", help="Output directory for generated artifacts."),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose logging."),
+    llm_provider: Optional[str] = typer.Option(None, "--llm-provider", help="offline, ollama, openai, openai-compatible, or anthropic."),
+    llm_model: Optional[str] = typer.Option(None, "--llm-model", help="Model name for the selected provider."),
+    llm_base_url: Optional[str] = typer.Option(None, "--llm-base-url", help="Override provider base URL."),
 ) -> None:
     """Run the full planning, verification, and code-generation pipeline."""
 
-    settings = get_settings(output, verbose)
+    settings = get_settings(output, verbose, llm_provider, llm_model, llm_base_url)
     ensure_directory(Path(settings.tla_dir))
     ensure_directory(Path(settings.python_dir))
     configure_logging(settings.log_level)

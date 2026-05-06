@@ -4,16 +4,28 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Optional
 
+from pydantic import ValidationError
+
+from src.llm import LLMClient, LLMError
 from src.models.task import TaskSpecification
 
 
 @dataclass(slots=True)
 class PlannerAgent:
-    """Rule-based planner for supported educational examples."""
+    """LLM-first planner with deterministic educational fallbacks."""
+
+    llm_client: Optional[LLMClient] = None
 
     def plan(self, prompt: str) -> TaskSpecification:
         """Parse a natural language prompt into a structured task specification."""
+
+        if self.llm_client is not None:
+            try:
+                return self._plan_with_llm(prompt)
+            except (LLMError, ValidationError, ValueError, TypeError):
+                pass
 
         text = prompt.strip()
         lowered = text.lower()
@@ -31,6 +43,51 @@ class PlannerAgent:
         if "stack" in lowered:
             return self._plan_stack(text)
         return self._plan_generic(text)
+
+    def _plan_with_llm(self, prompt: str) -> TaskSpecification:
+        """Ask an LLM to produce the structured planning model."""
+
+        assert self.llm_client is not None
+        data = self.llm_client.complete_json(
+            system_prompt=(
+                "You are a formal-methods planning agent. Convert the user's requirement into "
+                "a compact JSON object matching the TaskSpecification schema. Choose task_type "
+                "from bounded_counter, bank_transfer, state_machine, mutual_exclusion, queue, "
+                "stack, generic, or custom. Include inductive invariants and operations. "
+                "Do not include markdown or commentary."
+            ),
+            user_prompt=(
+                "Requirement:\n"
+                f"{prompt}\n\n"
+                "Return JSON with keys: name, slug, task_type, description, inputs, outputs, "
+                "state_variables, preconditions, postconditions, invariants, operations, "
+                "parameters, assumptions. Use custom for prompts outside the built-in examples."
+            ),
+        )
+        data.setdefault("description", prompt)
+        data.setdefault("task_type", "custom")
+        data.setdefault("inputs", [])
+        data.setdefault("outputs", [])
+        data.setdefault("state_variables", {})
+        data.setdefault("preconditions", [])
+        data.setdefault("postconditions", [])
+        data.setdefault("invariants", [])
+        data.setdefault("operations", [])
+        data.setdefault("parameters", {})
+        data.setdefault("assumptions", [])
+        if data["task_type"] not in {
+            "bounded_counter",
+            "bank_transfer",
+            "state_machine",
+            "mutual_exclusion",
+            "queue",
+            "stack",
+            "generic",
+            "custom",
+        }:
+            data["task_type"] = "custom"
+        data["slug"] = _slugify(str(data.get("slug") or data.get("name") or "custom_task"))
+        return TaskSpecification.model_validate(data)
 
     def _plan_bounded_counter(self, prompt: str) -> TaskSpecification:
         numbers = [int(match) for match in re.findall(r"-?\d+", prompt)]
@@ -159,3 +216,8 @@ class PlannerAgent:
             parameters={},
             assumptions=["Generic tasks use a conservative mock specification."],
         )
+
+
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
+    return slug or "custom_task"

@@ -13,3 +13,4 @@ generated/tla/*.cfg
 dist/
 build/
 *.egg-info/
+venv/

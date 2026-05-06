@@ -38,8 +38,15 @@ class VerifierAgent:
             details.append("Missing PlusCal algorithm block.")
         if "Invariant ==" not in tla_content:
             details.append("Missing invariant definition.")
+        if "Property ==" not in tla_content:
+            details.append("Missing property definition.")
         if not task.invariants:
             details.append("Task has no invariants.")
+
+        proof_text = tla_content.lower()
+        for obligation in ("initiation", "consecution", "property implication"):
+            if obligation not in proof_text:
+                details.append(f"Missing {obligation} proof-obligation marker.")
 
         if task.task_type == "bank_transfer":
             invariant_text = " ".join(task.invariants)

@@ -9,7 +9,7 @@
 3. a TLA+ verification step, and
 4. executable Python code.
 
-The system is intentionally designed for teaching and experimentation in a university formal methods or systems course. It runs locally without requiring any external LLM API and falls back to deterministic mock behavior when TLC is unavailable.
+The system is intentionally designed for teaching and experimentation in a university formal methods or systems course. It can run fully offline with deterministic fallbacks, or it can call an LLM through Ollama, OpenAI-compatible chat APIs, or Anthropic to synthesize task models, PlusCal/TLA+ specifications, inductive invariants, refinements, and Python code for prompts outside the curated examples.
 
 Supported example domains include:
 
@@ -24,11 +24,11 @@ Supported example domains include:
 
 The project uses a small agent pipeline:
 
-- `PlannerAgent`: parses the natural language prompt into a formalized task.
-- `SpecificationGenerator`: maps the task into a PlusCal/TLA+ module.
+- `PlannerAgent`: parses the natural language prompt into a formalized task, using the configured LLM first when available.
+- `SpecificationGenerator`: maps the task into a PlusCal/TLA+ module with an invariant, property, and proof-obligation markers.
 - `VerifierAgent`: executes TLC when available or a deterministic mock verifier otherwise.
-- `RefinerAgent`: improves a failing task/specification with rule-based feedback.
-- `CodeGeneratorAgent`: emits readable Python with assertions and docstrings.
+- `RefinerAgent`: improves a failing task/specification using structured verifier feedback.
+- `CodeGeneratorAgent`: emits readable Python with assertions and docstrings derived from the verified task.
 
 ## ASCII Diagram of the Pipeline
 
@@ -94,6 +94,34 @@ Request explicit verification status output:
 python -m src.main "Implement a simple queue with enqueue and dequeue" --verify --verbose
 ```
 
+Use Ollama for arbitrary prompts:
+
+```bash
+ollama serve
+python -m src.main "Implement a two-phase commit coordinator with abort on timeout" \
+  --llm-provider ollama \
+  --llm-model llama3.1
+```
+
+Use an OpenAI-compatible API:
+
+```bash
+export LLM_API_KEY=your_api_key
+python -m src.main "Implement a bounded retry scheduler with no negative retry count" \
+  --llm-provider openai \
+  --llm-model gpt-4o
+```
+
+Environment variables are also supported:
+
+```bash
+export LLM_PROVIDER=ollama
+export LLM_MODEL=llama3.1
+export LLM_BASE_URL=http://localhost:11434
+```
+
+Supported `LLM_PROVIDER` values are `offline`, `ollama`, `openai`, `openai-compatible`, and `anthropic`. `offline` is the default and uses the deterministic local templates.
+
 ## Example Outputs
 
 Example natural language prompt:
@@ -146,8 +174,7 @@ When `TLA_TLC_JAR` is configured, the verifier will attempt a real TLC run. Othe
 
 ## Limitations and Future Work
 
-- The natural language planner is rule-based rather than LLM-powered.
-- PlusCal generation relies on curated templates for supported problem classes.
+- LLM-generated PlusCal/TLA+ is validated structurally before use, but complex prompts may still need stronger TLC configuration and bounds.
 - The mock verifier checks consistency and invariant coverage but is not a substitute for exhaustive model checking.
 - Python generation targets clarity and safety rather than performance.
-- Future work could add richer template synthesis, SMT-backed refinement, richer TLA+ configs, and optional OpenAI or Anthropic adapters.
+- Future work could add SMT-backed proof-obligation checks, richer TLA+ configs, PlusCal translation automation, and benchmark-driven prompt tuning.

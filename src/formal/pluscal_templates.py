@@ -23,6 +23,12 @@ begin
 end algorithm; *)
 
 Invariant == counter >= {{ minimum }} /\\ counter <= {{ maximum }}
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -43,6 +49,12 @@ begin
 end algorithm; *)
 
 Invariant == source >= 0 /\\ target >= 0 /\\ source + target = {{ total }}
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -64,6 +76,12 @@ begin
 end algorithm; *)
 
 Invariant == state \\in {"IDLE", "RUNNING", "STOPPED"}
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -87,6 +105,12 @@ begin
 end algorithm; *)
 
 Invariant == lock_owner = "{{ unlocked }}" \\/ lock_owner \\in {"p1", "p2"}
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -108,6 +132,12 @@ begin
 end algorithm; *)
 
 Invariant == items \\in Seq({"x", "y", "z"})
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -129,6 +159,12 @@ begin
 end algorithm; *)
 
 Invariant == items \\in Seq({"x", "y", "z"})
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """
@@ -146,6 +182,12 @@ begin
 end algorithm; *)
 
 Invariant == state >= 0
+Property == Invariant
+
+\\* Proof obligations:
+\\* Initiation: Init => Invariant
+\\* Consecution: Invariant /\\ Next => Invariant'
+\\* Property Implication: Invariant => Property
 
 =============================================================================
 """

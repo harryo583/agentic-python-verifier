@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,17 +20,20 @@ class TaskSpecification(BaseModel):
         "queue",
         "stack",
         "generic",
+        "custom",
     ]
     description: str
     inputs: list[str] = Field(default_factory=list)
     outputs: list[str] = Field(default_factory=list)
-    state_variables: dict[str, Union[int, str, list[str]]] = Field(default_factory=dict)
+    state_variables: dict[str, Any] = Field(default_factory=dict)
     preconditions: list[str] = Field(default_factory=list)
     postconditions: list[str] = Field(default_factory=list)
     invariants: list[str] = Field(default_factory=list)
     operations: list[str] = Field(default_factory=list)
-    parameters: dict[str, Union[int, str]] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
     assumptions: list[str] = Field(default_factory=list)
+    pluscal_spec: str | None = None
+    python_code: str | None = None
 
 
 class VerificationResult(BaseModel):

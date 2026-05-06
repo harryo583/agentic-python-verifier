@@ -12,6 +12,7 @@ from src.agents.refiner import RefinerAgent
 from src.agents.spec_generator import SpecificationGenerator
 from src.agents.verifier import VerifierAgent
 from src.config import Settings, get_settings
+from src.llm import build_llm_client
 from src.models.task import TaskSpecification, VerificationResult
 from src.utils.file_utils import ensure_directory, write_text
 from src.utils.logger import configure_logging
@@ -36,11 +37,12 @@ def run_pipeline(prompt: str, settings: Settings, verify: bool = True) -> Pipeli
     ensure_directory(settings.tla_dir)
     ensure_directory(settings.python_dir)
 
-    planner = PlannerAgent()
-    spec_generator = SpecificationGenerator()
+    llm_client = build_llm_client(settings)
+    planner = PlannerAgent(llm_client=llm_client)
+    spec_generator = SpecificationGenerator(llm_client=llm_client)
     verifier = VerifierAgent(settings)
-    refiner = RefinerAgent()
-    code_generator = CodeGeneratorAgent()
+    refiner = RefinerAgent(llm_client=llm_client)
+    code_generator = CodeGeneratorAgent(llm_client=llm_client)
 
     task = planner.plan(prompt)
     tla_content = spec_generator.generate(task)
@@ -55,10 +57,13 @@ def run_pipeline(prompt: str, settings: Settings, verify: bool = True) -> Pipeli
         details=["Verification disabled."],
     )
 
-    if verification.status != "success" and verify:
-        LOGGER.warning("Initial verification failed; refining specification.")
+    for attempt in range(2):
+        if verification.status == "success" or not verify:
+            break
+        LOGGER.warning("Verification failed; refining specification, attempt %s.", attempt + 1)
         task = refiner.refine(task, verification)
         tla_content = spec_generator.generate(task)
+        tla_path = settings.tla_dir / f"{task.slug}.tla"
         write_text(tla_path, tla_content)
         verification = verifier.verify(task, tla_path, tla_content)
 
@@ -85,11 +90,26 @@ def main() -> None:
         verify = "--no-verify" not in sys.argv
         verbose = "--verbose" in sys.argv
         output = None
+        llm_provider = None
+        llm_model = None
+        llm_base_url = None
         if "--output" in sys.argv:
             output_index = sys.argv.index("--output")
             if output_index + 1 < len(sys.argv):
                 output = sys.argv[output_index + 1]
-        settings = get_settings(output, verbose)
+        if "--llm-provider" in sys.argv:
+            index = sys.argv.index("--llm-provider")
+            if index + 1 < len(sys.argv):
+                llm_provider = sys.argv[index + 1]
+        if "--llm-model" in sys.argv:
+            index = sys.argv.index("--llm-model")
+            if index + 1 < len(sys.argv):
+                llm_model = sys.argv[index + 1]
+        if "--llm-base-url" in sys.argv:
+            index = sys.argv.index("--llm-base-url")
+            if index + 1 < len(sys.argv):
+                llm_base_url = sys.argv[index + 1]
+        settings = get_settings(output, verbose, llm_provider, llm_model, llm_base_url)
         configure_logging(settings.log_level)
         result = run_pipeline(prompt, settings, verify=verify)
         LOGGER.info("Python artifact written to %s", result.python_path)

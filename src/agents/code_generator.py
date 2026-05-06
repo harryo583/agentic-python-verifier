@@ -2,17 +2,33 @@
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
+from typing import Optional
 
+from src.llm import LLMClient, LLMError
 from src.models.task import TaskSpecification, VerificationResult
 
 
 @dataclass(slots=True)
 class CodeGeneratorAgent:
-    """Emit readable Python implementations with assertions."""
+    """Emit readable Python implementations with invariant assertions."""
+
+    llm_client: Optional[LLMClient] = None
 
     def generate(self, task: TaskSpecification, verification: VerificationResult) -> str:
         """Generate Python code for a verified task."""
+
+        if task.python_code and _is_valid_python(task.python_code):
+            return task.python_code
+        if self.llm_client is not None:
+            try:
+                generated = self._generate_with_llm(task, verification)
+                if _is_valid_python(generated):
+                    task.python_code = generated
+                    return generated
+            except LLMError:
+                pass
 
         header = (
             '"""Generated Python code from a verified formal specification."""\n\n'
@@ -130,3 +146,31 @@ def pop(items: list[str]) -> tuple[str | None, list[str]]:
     return state
 '''
         return header + body
+
+    def _generate_with_llm(self, task: TaskSpecification, verification: VerificationResult) -> str:
+        assert self.llm_client is not None
+        data = self.llm_client.complete_json(
+            system_prompt=(
+                "You are a Python implementation agent. Generate executable, dependency-free "
+                "Python 3.11 code from a verified PlusCal/TLA+ task. Include runtime assertions "
+                "that correspond to the invariant, preconditions, and postconditions. Return only JSON."
+            ),
+            user_prompt=(
+                "TaskSpecification JSON:\n"
+                f"{task.model_dump_json(indent=2)}\n\n"
+                "Verification result JSON:\n"
+                f"{verification.model_dump_json(indent=2)}\n\n"
+                'Return {"python_code": "..."} with complete module text. Do not use placeholders.'
+            ),
+        )
+        return str(data.get("python_code", "")).strip()
+
+
+def _is_valid_python(code: str) -> bool:
+    if not code.strip():
+        return False
+    try:
+        ast.parse(code)
+    except SyntaxError:
+        return False
+    return True
