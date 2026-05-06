@@ -1,0 +1,1 @@
+Implement a bank transfer between two accounts that never allows a negative balance and preserves the total sum of money.

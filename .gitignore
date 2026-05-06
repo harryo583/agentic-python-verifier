@@ -1,0 +1,15 @@
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.env
+generated/python/*.pyc
+generated/python/__pycache__/
+generated/tla/*.out
+generated/tla/*.log
+generated/tla/*.cfg
+dist/
+build/
+*.egg-info/
