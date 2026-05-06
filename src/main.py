@@ -1,18 +1,19 @@
-"""Entry point and orchestration for the agentic verifier."""
+"""Orchestrator for the proof-driven PlusCal+invariant co-synthesis pipeline."""
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Optional
 
-from src.agents.code_generator import CodeGeneratorAgent
-from src.agents.planner import PlannerAgent
-from src.agents.refiner import RefinerAgent
-from src.agents.spec_generator import SpecificationGenerator
-from src.agents.verifier import VerifierAgent
-from src.config import Settings, get_settings
-from src.models.task import TaskSpecification, VerificationResult
+from src.agents.refine_agent import RefineAgent, RefinedModule
+from src.agents.synth_agent import SynthesisAgent
+from src.agents.verifier import Verifier
+from src.config import Settings, get_settings, require_runtime_settings
+from src.llm.anthropic_client import AnthropicClient
+from src.models.proof import ProofBundle
+from src.models.synthesis import SynthesisProposal
+from src.models.task import PipelineResult, TaskRequest
 from src.utils.file_utils import ensure_directory, write_text
 from src.utils.logger import configure_logging
 
@@ -20,83 +21,116 @@ from src.utils.logger import configure_logging
 LOGGER = logging.getLogger(__name__)
 
 
-@dataclass(slots=True)
-class PipelineResult:
-    """Bundle of outputs produced by the pipeline."""
+def run_pipeline(
+    task: TaskRequest,
+    settings: Settings,
+    client: Optional[AnthropicClient] = None,
+    verifier: Optional[Verifier] = None,
+) -> PipelineResult:
+    """Run the full proof-driven pipeline.
 
-    task: TaskSpecification
-    verification: VerificationResult
-    tla_path: Path
-    python_path: Path
+    `client` and `verifier` may be injected for testing. In production they
+    are constructed from `settings`.
+    """
 
-
-def run_pipeline(prompt: str, settings: Settings, verify: bool = True) -> PipelineResult:
-    """Run the full natural-language to verified-Python pipeline."""
-
+    require_runtime_settings(settings)
     ensure_directory(settings.tla_dir)
     ensure_directory(settings.python_dir)
+    ensure_directory(settings.work_dir)
 
-    planner = PlannerAgent()
-    spec_generator = SpecificationGenerator()
-    verifier = VerifierAgent(settings)
-    refiner = RefinerAgent()
-    code_generator = CodeGeneratorAgent()
-
-    task = planner.plan(prompt)
-    tla_content = spec_generator.generate(task)
-    tla_path = settings.tla_dir / f"{task.slug}.tla"
-    write_text(tla_path, tla_content)
-    LOGGER.info("Generated TLA+ specification at %s", tla_path)
-
-    verification = verifier.verify(task, tla_path, tla_content) if verify else VerificationResult(
-        status="skipped",
-        used_mock=True,
-        message="Verification skipped by user option.",
-        details=["Verification disabled."],
+    client = client or AnthropicClient(
+        api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
+        model=settings.model,
+        fallback_model=settings.fallback_model,
     )
+    verifier = verifier or Verifier(settings)
+    synth = SynthesisAgent(client)
+    refine = RefineAgent(client)
 
-    if verification.status != "success" and verify:
-        LOGGER.warning("Initial verification failed; refining specification.")
-        task = refiner.refine(task, verification)
-        tla_content = spec_generator.generate(task)
-        write_text(tla_path, tla_content)
-        verification = verifier.verify(task, tla_path, tla_content)
+    LOGGER.info("Synthesising initial proposal...")
+    proposal, history = synth.propose(task)
+    last_tool_use_id = _last_tool_use_id(history)
 
-    python_content = code_generator.generate(task, verification)
-    python_path = settings.python_dir / f"{task.slug}.py"
-    write_text(python_path, python_content)
-    LOGGER.info("Generated Python code at %s", python_path)
+    bundle: ProofBundle | None = None
+    iterations = 0
+    for i in range(task.max_iterations):
+        iterations = i + 1
+        LOGGER.info(
+            "Iteration %d: verifying proposal %s...", iterations, proposal.module_name
+        )
+        work_dir = settings.work_dir / f"{proposal.slug}_iter{i}"
+        bundle = verifier.check(proposal, work_dir)
+        if bundle.all_passed:
+            LOGGER.info("All three obligations passed at iteration %d.", iterations)
+            break
+
+        failing = [r.obligation for r in bundle.failing()]
+        LOGGER.warning(
+            "Iteration %d failed obligations: %s. Requesting repair...",
+            iterations,
+            failing,
+        )
+        if i == task.max_iterations - 1:
+            break
+
+        proposal, _repair, history = synth.repair(
+            task=task,
+            history=history,
+            bundle=bundle,
+            last_proposal=proposal,
+            previous_tool_use_id=last_tool_use_id,
+        )
+        last_tool_use_id = _last_tool_use_id(history)
+
+    assert bundle is not None
+
+    if not bundle.all_passed:
+        LOGGER.error("Pipeline exhausted %d iterations without verification.", iterations)
+        return PipelineResult(
+            status="unverified",
+            iterations=iterations,
+            proposal=proposal,
+            bundle=bundle,
+        )
+
+    LOGGER.info("Refining verified PlusCal into Python...")
+    refined: RefinedModule = refine.to_python(proposal)
+
+    tla_path = settings.tla_dir / f"{proposal.slug}.tla"
+    python_path = settings.python_dir / f"{proposal.slug}.py"
+    work_main = settings.work_dir / f"{proposal.slug}_iter{iterations - 1}" / f"{proposal.module_name}.tla"
+    if work_main.exists():
+        write_text(tla_path, work_main.read_text(encoding="utf-8"))
+    else:
+        write_text(tla_path, proposal.pluscal)
+    write_text(python_path, refined.python_module)
 
     return PipelineResult(
-        task=task,
-        verification=verification,
+        status="verified",
+        iterations=iterations,
+        proposal=proposal,
+        bundle=bundle,
         tla_path=tla_path,
         python_path=python_path,
     )
 
 
+def _last_tool_use_id(history: list[dict[str, Any]]) -> str:
+    for msg in reversed(history):
+        if msg.get("role") != "assistant":
+            continue
+        for block in msg.get("content", []) or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                return block["id"]
+    raise RuntimeError("No tool_use block found in conversation history.")
+
+
 def main() -> None:
-    """Support `python -m src.main ...` by delegating to the Typer app."""
+    """Entrypoint for `python -m src.main`."""
 
-    import sys
+    from src.cli import app
 
-    if len(sys.argv) > 1:
-        prompt = sys.argv[1]
-        verify = "--no-verify" not in sys.argv
-        verbose = "--verbose" in sys.argv
-        output = None
-        if "--output" in sys.argv:
-            output_index = sys.argv.index("--output")
-            if output_index + 1 < len(sys.argv):
-                output = sys.argv[output_index + 1]
-        settings = get_settings(output, verbose)
-        configure_logging(settings.log_level)
-        result = run_pipeline(prompt, settings, verify=verify)
-        LOGGER.info("Python artifact written to %s", result.python_path)
-    else:
-        from src.cli import app
-
-        app()
+    app()
 
 
 if __name__ == "__main__":

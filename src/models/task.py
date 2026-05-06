@@ -1,42 +1,44 @@
-"""Domain models for task planning and verification."""
+"""Task request and pipeline result models."""
 
 from __future__ import annotations
 
-from typing import Literal, Union
+import re
+from pathlib import Path
+from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-
-class TaskSpecification(BaseModel):
-    """Structured representation of an input task."""
-
-    name: str
-    slug: str
-    task_type: Literal[
-        "bounded_counter",
-        "bank_transfer",
-        "state_machine",
-        "mutual_exclusion",
-        "queue",
-        "stack",
-        "generic",
-    ]
-    description: str
-    inputs: list[str] = Field(default_factory=list)
-    outputs: list[str] = Field(default_factory=list)
-    state_variables: dict[str, Union[int, str, list[str]]] = Field(default_factory=dict)
-    preconditions: list[str] = Field(default_factory=list)
-    postconditions: list[str] = Field(default_factory=list)
-    invariants: list[str] = Field(default_factory=list)
-    operations: list[str] = Field(default_factory=list)
-    parameters: dict[str, Union[int, str]] = Field(default_factory=dict)
-    assumptions: list[str] = Field(default_factory=list)
+from src.models.proof import ProofBundle
+from src.models.synthesis import SynthesisProposal
 
 
-class VerificationResult(BaseModel):
-    """Outcome of a verification run."""
+class TaskRequest(BaseModel):
+    """A natural-language requirement for the agent to verify and implement."""
 
-    status: Literal["success", "failure", "skipped"]
-    used_mock: bool
-    message: str
-    details: list[str] = Field(default_factory=list)
+    prompt: str = Field(..., min_length=1)
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    extra_constants: dict[str, list[str | int]] = Field(default_factory=dict)
+    max_iterations: int = Field(default=5, ge=1, le=20)
+
+    @field_validator("slug")
+    @classmethod
+    def _slug_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", v):
+            raise ValueError("slug must match ^[a-z][a-z0-9_]*$")
+        return v
+
+
+class PipelineResult(BaseModel):
+    """Final outcome of a pipeline run."""
+
+    status: Literal["verified", "unverified"]
+    iterations: int
+    proposal: SynthesisProposal
+    bundle: ProofBundle
+    tla_path: Optional[Path] = None
+    python_path: Optional[Path] = None
+
+    model_config = {"arbitrary_types_allowed": True}

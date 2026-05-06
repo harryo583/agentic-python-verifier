@@ -1,153 +1,209 @@
 # Agentic Python Verifier
 
-## Project Overview
+**Proof-Driven Python Code Generation via Agentic PlusCal Invariant
+Co-Synthesis**
+*Harry Wang, Eric Shang Nan Chen*
 
-`agentic-python-verifier` is a correctness-first prototype that converts a natural language algorithm description into:
+## What this is
 
-1. a structured task model,
-2. a PlusCal specification,
-3. a TLA+ verification step, and
-4. executable Python code.
+Most LLM code-generation pipelines write code first and try to verify it
+afterwards. This project inverts that: an agentic system **co-synthesises a
+PlusCal specification and a candidate inductive invariant** for a natural
+language requirement, runs three formal proof obligations through TLC, feeds
+counterexamples back to the agent for repair, and only after all three
+obligations pass does a second agent refine the verified PlusCal into an
+executable Python module whose runtime assertions are derived from the
+verified invariant.
 
-The system is intentionally designed for teaching and experimentation in a university formal methods or systems course. It runs locally without requiring any external LLM API and falls back to deterministic mock behavior when TLC is unavailable.
+## The three proof obligations
 
-Supported example domains include:
+For an algorithm with initial-state predicate `Init`, transition relation
+`Next`, candidate inductive invariant `Inv`, and target safety property
+`Property`, the verifier checks:
 
-- bounded counters,
-- bank transfers,
-- finite state machines,
-- mutual exclusion,
-- queue operations, and
-- stack operations.
+| Obligation       | Formula                       | Encoding                                    |
+| ---------------- | ----------------------------- | ------------------------------------------- |
+| **Initiation**   | `Init ⇒ Inv`                  | `SPECIFICATION Spec / INVARIANT Inv` on the PlusCal module |
+| **Consecution**  | `Inv ∧ Next ⇒ Inv'`           | Aux module: `IInit == Inv`, `ISpec == IInit /\ [][Next]_vars`; check `INVARIANT Inv` |
+| **Property impl.** | `Inv ⇒ Property`            | Aux module: `PInit == Inv`, `PSpec == PInit /\ [][UNCHANGED vars]_vars`; check `INVARIANT Property` |
 
-## System Architecture
+If any obligation fails, the parsed counterexample (failing obligation, the
+violated predicate, and the state trace) is sent back to the synthesis agent
+through Claude's `tool_result` channel, and the agent emits a revised
+`(PlusCal, Inv, Property)` triple via the `repair_after_counterexample`
+tool. The loop terminates when all three obligations pass or the iteration
+cap is reached.
 
-The project uses a small agent pipeline:
-
-- `PlannerAgent`: parses the natural language prompt into a formalized task.
-- `SpecificationGenerator`: maps the task into a PlusCal/TLA+ module.
-- `VerifierAgent`: executes TLC when available or a deterministic mock verifier otherwise.
-- `RefinerAgent`: improves a failing task/specification with rule-based feedback.
-- `CodeGeneratorAgent`: emits readable Python with assertions and docstrings.
-
-## ASCII Diagram of the Pipeline
+## Pipeline
 
 ```text
-+-------------------------------+
-| Natural Language Specification|
-+---------------+---------------+
-                |
-                v
-      +---------+----------+
-      | Planner Agent      |
-      | Structured Task    |
-      +---------+----------+
-                |
-                v
-      +---------+----------+
-      | Spec Generator     |
-      | PlusCal + TLA+     |
-      +---------+----------+
-                |
-                v
-      +---------+----------+
-      | Verifier Agent     |
-      | TLC or Mock TLC    |
-      +----+-----------+---+
-           |           |
-        pass|           |fail
-           v           v
-   +-------+---+   +---+--------+
-   | Code Gen |   | Refiner     |
-   | Python   |   | Feedback    |
-   +-------+--+   +---+--------+
-           |          |
-           +----------+
-                retry
+                 +---------------------------------+
+ prompt -------> | SynthesisAgent.propose          |  Claude Opus 4.7
+                 | tool: propose_pluscal_with_inv. |  with function calling
+                 +---------------+-----------------+
+                                 |
+                                 v   PlusCal module + Inv + Property + finite CONSTANTS
+            +---------------------------------------+
+            | Verifier:                             |
+            |   pcal.trans  -> TLA+                 |
+            |   write Consec_<M>.tla, Prop_<M>.tla  |
+            |   write init.cfg / consec.cfg /       |
+            |         property.cfg                  |
+            |   tlc x 3  -> ProofBundle             |
+            +---------------+-----------------------+
+                            |
+                bundle.all_passed?
+            no  /                  \  yes
+               v                    v
+   +-----------------------+   +---------------------------+
+   | SynthesisAgent.repair |   | RefineAgent.to_python     |
+   | tool: repair_after_   |   | tool: emit_python_module  |
+   | counterexample        |   | (assertions derived from  |
+   +-----------+-----------+   |  Inv conjuncts)           |
+               |               +-------------+-------------+
+               +-> propose ...                |
+                                              v
+                                   <slug>.py with runtime asserts
 ```
 
-## Installation Instructions
+## Installation
+
+Python 3.11+ is required.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Python 3.11 or newer is required.
-
-## Usage Examples
-
-Run the end-to-end pipeline:
-
-```bash
-python -m src.main "Implement a bounded counter from 0 to 10"
-```
-
-Write artifacts to custom paths:
+You also need [TLA+ tools](https://github.com/tlaplus/tlaplus/releases). The
+`tla2tools.jar` distributable supplies both `pcal.trans` (the PlusCal-to-TLA+
+translator) and `tlc2.TLC` (the model checker), so a single download covers
+both binaries the verifier shells out to.
 
 ```bash
-python -m src.main "Implement a bank transfer that preserves total balance" --output generated
+export TLA2TOOLS_JAR=/absolute/path/to/tla2tools.jar
+export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Request explicit verification status output:
+(`TLA_TLC_JAR` is also accepted as a backward-compatible alias.)
+
+## Usage
 
 ```bash
-python -m src.main "Implement a simple queue with enqueue and dequeue" --verify --verbose
+python -m src.main "Implement a bounded counter from 0 to 10 that never exceeds the bound."
 ```
 
-## Example Outputs
+Options:
 
-Example natural language prompt:
-
-```text
-Implement a bounded counter from 0 to 10
+```
+--output, -o          Output directory (default: ./generated)
+--max-iterations, -n  Max repair iterations (default: 5; range 1-20)
+--model, -m           Override the Claude model id (default: claude-opus-4-7)
+--verbose, -v         Verbose logging
 ```
 
-Example generated PlusCal snippet:
+The CLI exits with code `0` when all three obligations pass and the Python
+module has been written, code `1` when the iteration cap is exhausted
+without verification, and code `2` when configuration is missing
+(`ANTHROPIC_API_KEY` or `TLA2TOOLS_JAR`).
 
-```tla
---algorithm BoundedCounter
-variables counter = 0;
-begin
-  Increment:
-    if counter < 10 then
-      counter := counter + 1;
-    end if;
-end algorithm;
+Outputs:
+- `generated/tla/<slug>.tla` — the verified PlusCal module with its
+  `\* BEGIN TRANSLATION` block inlined by `pcal.trans`.
+- `generated/python/<slug>.py` — Python implementation with runtime
+  `assert` statements derived from the conjuncts of `Inv`.
+- `generated/work/<slug>_iter<N>/…` — per-iteration scratch dir containing
+  the auxiliary `Consec_<Module>.tla`, `Prop_<Module>.tla`, three `.cfg`
+  files, and TLC's working artifacts. Useful for debugging a stuck run.
+
+## Project layout
+
+```
+src/
+  agents/
+    synth_agent.py     LLM co-synthesis: propose + repair tools
+    refine_agent.py    LLM PlusCal -> Python with derived asserts
+    verifier.py        Orchestrates the three TLC obligations
+  formal/
+    pcal_translator.py Wraps `java -cp tla2tools.jar pcal.trans <file>`
+    tlc_config.py      Generates init.cfg / consec.cfg / property.cfg and
+                       the auxiliary Consec_<M>.tla / Prop_<M>.tla modules
+    tla_runner.py      Wraps `java -cp tla2tools.jar tlc2.TLC -config ...`
+    counterexample_parser.py
+                       Parses TLC stdout/stderr into structured
+                       ObligationResult / Counterexample
+  llm/
+    anthropic_client.py Anthropic SDK wrapper with prompt caching
+    tools.py            JSONSchema for the three function-calling tools
+    prompts.py          System prompts for synth / repair / refine
+  models/
+    task.py            TaskRequest, PipelineResult
+    synthesis.py       Constants, SynthesisProposal, RepairProposal
+    proof.py           TraceState, Counterexample, ObligationResult,
+                       ProofBundle
+  config.py            Settings + fail-fast on missing key/jar
+  main.py              Pipeline orchestrator (the agent loop)
+  cli.py               Typer CLI
+
+examples/              Benchmark prompts (bounded_counter, bank_transfer)
+tests/                 Unit + mocked-pipeline + gated integration tests
 ```
 
-Example generated Python snippet:
+## Testing
 
-```python
-def increment(counter: int, max_value: int = 10) -> int:
-    """Increment a bounded counter without exceeding its maximum."""
-    assert 0 <= counter <= max_value
-    if counter < max_value:
-        counter += 1
-    assert 0 <= counter <= max_value
-    return counter
-```
-
-## Instructions for Installing TLA+ and TLC
-
-This project works without TLC, but real model checking is supported when TLC is available on your machine.
-
-1. Install Java 11 or newer.
-2. Download the TLA+ tools from the official TLA+ release distribution.
-3. Ensure the `tla2tools.jar` file is available locally.
-4. Set `TLA_TLC_JAR` in your environment to the absolute path of `tla2tools.jar`.
-
-Example:
+The offline suite mocks the Anthropic SDK at the boundary and uses captured
+TLC trace fixtures, so it runs without an API key or `tla2tools.jar`:
 
 ```bash
-export TLA_TLC_JAR=/absolute/path/to/tla2tools.jar
+pytest tests/ -m "not integration"
 ```
 
-When `TLA_TLC_JAR` is configured, the verifier will attempt a real TLC run. Otherwise it will use a deterministic mock verifier.
+Integration tests are gated by environment variables:
 
-## Limitations and Future Work
+```bash
+# TLC integration (requires TLA2TOOLS_JAR, no API key needed):
+pytest tests/test_tlc_runner.py -m integration
 
-- The natural language planner is rule-based rather than LLM-powered.
-- PlusCal generation relies on curated templates for supported problem classes.
-- The mock verifier checks consistency and invariant coverage but is not a substitute for exhaustive model checking.
-- Python generation targets clarity and safety rather than performance.
-- Future work could add richer template synthesis, SMT-backed refinement, richer TLA+ configs, and optional OpenAI or Anthropic adapters.
+# Live end-to-end (requires both TLA2TOOLS_JAR and ANTHROPIC_API_KEY;
+# incurs API costs):
+pytest tests/test_e2e.py -m integration
+```
+
+## Tool stack
+
+- **LLM backbone:** Claude Opus 4.7 (`claude-opus-4-7`) via the Anthropic
+  Python SDK with function calling, with Claude Opus 4.6
+  (`claude-opus-4-6`) as the automatic fallback on a `529 OverloadedError`
+  (override either via `ANTHROPIC_MODEL` / `ANTHROPIC_FALLBACK_MODEL`).
+  Three tools: `propose_pluscal_with_invariant`,
+  `repair_after_counterexample`, `emit_python_module`. The system prompt
+  is wrapped in `cache_control: ephemeral` so repeated repair iterations
+  hit the prompt cache.
+- **Verification engine:** TLC model checker (`tlc2.TLC`), invoked as a
+  subprocess with `-config <obligation>.cfg -workers auto -deadlock`.
+- **PlusCal support:** the official `pcal.trans` translator, also bundled
+  in `tla2tools.jar`.
+
+## Known limitations
+
+- **Finite-domain inductive checking only.** The synthesis agent is asked
+  to supply small finite `CONSTANTS` (e.g. `MaxValue ∈ {3, 5, 10}`). True
+  unbounded inductiveness would need TLAPS, which is out of scope for this
+  prototype.
+- **`Inv` must be expressible as an initial-state predicate.** Each
+  variable must appear under explicit set membership (`counter \in
+  0..MaxValue`, not just `counter >= 0 /\ counter <= MaxValue`). The
+  system prompt instructs the agent on this, and the parser surfaces TLC's
+  "identifier ... is undefined" message as a repairable error so the agent
+  can fix it.
+- **TLC may diverge** if `Inv` quantifies over an unbounded set despite
+  finite CONSTANTS. Mitigated by a configurable timeout
+  (`TLC_TIMEOUT_S`, default 120s) which surfaces as
+  `ObligationResult.status="timeout"` and is fed back to the agent for
+  repair.
+- **Anthropic responses are non-deterministic.** Reproducibility comes
+  from the verified `.tla` + `Inv` artifact, not from the LLM dialog. The
+  test suite mocks the client at the SDK boundary.
+
+## License
+
+MIT (see `LICENSE`).

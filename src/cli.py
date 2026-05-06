@@ -1,49 +1,80 @@
-"""Typer CLI for the agentic verifier."""
+"""Typer CLI for the proof-driven verifier."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import sys
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from src.config import get_settings
+from src.config import ConfigError, get_settings
 from src.main import run_pipeline
-from src.utils.file_utils import ensure_directory
+from src.models.task import TaskRequest
 from src.utils.logger import configure_logging
 
 
-app = typer.Typer(add_completion=False, help="Generate verified Python from natural language.")
+app = typer.Typer(
+    add_completion=False,
+    help="Proof-driven Python code generation via agentic PlusCal+invariant co-synthesis.",
+)
 console = Console()
 
 
 @app.command()
 def generate(
-    prompt: str = typer.Argument(..., help="Natural language problem description."),
-    verify: bool = typer.Option(True, "--verify/--no-verify", help="Run verification."),
-    output: Optional[str] = typer.Option(None, "--output", help="Output directory for generated artifacts."),
-    verbose: bool = typer.Option(False, "--verbose", help="Enable verbose logging."),
+    prompt: str = typer.Argument(..., help="Natural language requirement."),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Output directory for generated artifacts."
+    ),
+    max_iterations: int = typer.Option(
+        5, "--max-iterations", "-n", min=1, max=20, help="Maximum repair iterations."
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Override the Claude model id."
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging."),
 ) -> None:
-    """Run the full planning, verification, and code-generation pipeline."""
+    """Run the full co-synthesis pipeline on PROMPT."""
 
-    settings = get_settings(output, verbose)
-    ensure_directory(Path(settings.tla_dir))
-    ensure_directory(Path(settings.python_dir))
-    configure_logging(settings.log_level)
-    result = run_pipeline(prompt=prompt, settings=settings, verify=verify)
-    console.print(
-        Panel.fit(
-            (
-                f"Task type: {result.task.task_type}\n"
-                f"Verification: {result.verification.status}\n"
-                f"TLA+: {result.tla_path}\n"
-                f"Python: {result.python_path}"
-            ),
-            title="Agentic Python Verifier",
-        )
+    settings = get_settings(
+        output_dir=output,
+        verbose=verbose,
+        max_iterations=max_iterations,
+        model=model,
     )
+    configure_logging(settings.log_level)
+    task = TaskRequest(prompt=prompt, max_iterations=max_iterations)
+
+    try:
+        result = run_pipeline(task, settings)
+    except ConfigError as exc:
+        console.print(f"[bold red]Configuration error[/bold red]\n{exc}")
+        raise typer.Exit(code=2)
+
+    obligations = (
+        f"Init:     {result.bundle.init.status}\n"
+        f"Consec:   {result.bundle.consec.status}\n"
+        f"Property: {result.bundle.property.status}"
+    )
+
+    if result.status == "verified":
+        body = (
+            f"[bold green]Verified[/bold green] in {result.iterations} iteration(s)\n\n"
+            f"{obligations}\n\n"
+            f"TLA+:   {result.tla_path}\n"
+            f"Python: {result.python_path}"
+        )
+    else:
+        body = (
+            f"[bold yellow]Unverified[/bold yellow] after {result.iterations} iteration(s)\n\n"
+            f"{obligations}"
+        )
+
+    console.print(Panel.fit(body, title="Proof-Driven Verifier"))
+    if result.status != "verified":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

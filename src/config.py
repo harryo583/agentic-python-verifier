@@ -13,20 +13,41 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+DEFAULT_MODEL = "claude-opus-4-7"
+DEFAULT_FALLBACK_MODEL = "claude-opus-4-6"
+
+
 @dataclass(slots=True)
 class Settings:
-    """Runtime settings for the pipeline."""
+    """Runtime settings for the proof-driven pipeline."""
 
     project_root: Path
     generated_dir: Path
     tla_dir: Path
     python_dir: Path
-    tlc_jar_path: Optional[str]
+    work_dir: Path
+
+    anthropic_api_key: Optional[str]
+    tla2tools_jar: Optional[str]
+    model: str
+    fallback_model: Optional[str]
+    max_iterations: int
+    tlc_timeout_s: int
     log_level: str
 
 
-def get_settings(output_dir: Optional[str] = None, verbose: bool = False) -> Settings:
-    """Build application settings from the environment and optional flags."""
+class ConfigError(RuntimeError):
+    """Raised when required configuration is missing."""
+
+
+def get_settings(
+    output_dir: Optional[str] = None,
+    verbose: bool = False,
+    max_iterations: Optional[int] = None,
+    model: Optional[str] = None,
+    fallback_model: Optional[str] = None,
+) -> Settings:
+    """Build application settings from environment and optional CLI overrides."""
 
     project_root = Path(__file__).resolve().parent.parent
     generated_dir = (
@@ -36,12 +57,46 @@ def get_settings(output_dir: Optional[str] = None, verbose: bool = False) -> Set
     )
     tla_dir = generated_dir / "tla"
     python_dir = generated_dir / "python"
+    work_dir = generated_dir / "work"
     log_level = "DEBUG" if verbose else os.getenv("LOG_LEVEL", "INFO")
+
     return Settings(
         project_root=project_root,
         generated_dir=generated_dir,
         tla_dir=tla_dir,
         python_dir=python_dir,
-        tlc_jar_path=os.getenv("TLA_TLC_JAR"),
+        work_dir=work_dir,
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+        tla2tools_jar=os.getenv("TLA2TOOLS_JAR") or os.getenv("TLA_TLC_JAR"),
+        model=model or os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL),
+        fallback_model=fallback_model
+        or os.getenv("ANTHROPIC_FALLBACK_MODEL", DEFAULT_FALLBACK_MODEL),
+        max_iterations=max_iterations
+        or int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
+        tlc_timeout_s=int(os.getenv("TLC_TIMEOUT_S", "120")),
         log_level=log_level,
     )
+
+
+def require_runtime_settings(settings: Settings) -> None:
+    """Fail fast if mandatory settings are missing."""
+
+    missing: list[str] = []
+    if not settings.anthropic_api_key:
+        missing.append(
+            "ANTHROPIC_API_KEY (set in your environment or a .env file)"
+        )
+    if not settings.tla2tools_jar:
+        missing.append(
+            "TLA2TOOLS_JAR (path to tla2tools.jar; supplies pcal.trans and tlc2.TLC)"
+        )
+    elif not Path(settings.tla2tools_jar).exists():
+        missing.append(
+            f"TLA2TOOLS_JAR points to a missing file: {settings.tla2tools_jar}"
+        )
+    if missing:
+        joined = "\n  - ".join(missing)
+        raise ConfigError(
+            "Cannot run the proof-driven pipeline. Missing required settings:\n  - "
+            + joined
+        )

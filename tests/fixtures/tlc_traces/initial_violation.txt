@@ -1,0 +1,14 @@
+TLC2 Version 2.18 of Day Month 20XX (rev: abcdef0)
+Parsing file BoundedCounter.tla
+Semantic processing of module BoundedCounter
+Starting... (2024-01-01 00:00:00)
+Computing initial states...
+Error: Invariant Inv is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ counter = -1
+/\ pc = "Increment"
+
+1 state generated, 1 distinct state found, 0 states left on queue.
+The depth of the complete state graph search is 1.
+Finished in 00s at (2024-01-01 00:00:01)
