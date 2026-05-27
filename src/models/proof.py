@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-Obligation = Literal["init", "consec", "property"]
+Obligation = Literal["init", "consec", "property", "refinement"]
 
 
 class TraceState(BaseModel):
