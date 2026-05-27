@@ -145,3 +145,65 @@ REFINE_TOOL: dict[str, Any] = {
         },
     },
 }
+
+
+PROPOSE_DECOMPOSITION_TOOL: dict[str, Any] = {
+    "name": "propose_decomposition",
+    "description": (
+        "Decompose a natural-language requirement into a parent TLA+ module "
+        "and up to 4 child modules, each with an AbstractInterface "
+        "(state_variables, actions, invariant_sketch). The synthesiser will "
+        "later expand each child into matched <Name>_Abs.tla and "
+        "<Name>_Impl.tla modules; the parent will INSTANCE the impls. "
+        "Bias toward 2-3 modules. Composition cannot live in PlusCal — "
+        "it lives at the TLA+ layer, so every module must have a clean "
+        "abstract contract."
+    ),
+    "input_schema": {
+        "type": "object",
+        "required": ["parent_name", "parent_role", "modules"],
+        "properties": {
+            "parent_name": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                "description": "TLA+ module name for the composing parent.",
+            },
+            "parent_role": {
+                "type": "string",
+                "description": "What the parent composes / orchestrates.",
+            },
+            "modules": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                    "type": "object",
+                    "required": ["name", "role", "abstract_iface"],
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                        },
+                        "role": {"type": "string"},
+                        "abstract_iface": {
+                            "type": "object",
+                            "required": ["state_variables", "actions", "invariant_sketch"],
+                            "properties": {
+                                "state_variables": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "actions": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "invariant_sketch": {"type": "string"},
+                            },
+                        },
+                    },
+                },
+            },
+            "notes": {"type": "string", "default": ""},
+        },
+    },
+}
