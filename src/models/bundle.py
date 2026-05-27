@@ -1,4 +1,7 @@
-"""Synthesiser-output models: a verifiable multi-module bundle and its proof results."""
+"""Synthesiser-output models: a verifiable multi-module bundle and its proof
+results, plus placeholder schemas for Week-2 refinement output and Week-3
+trace conformance.
+"""
 
 from __future__ import annotations
 import re
@@ -138,6 +141,15 @@ class CompositionalProofBundle(BaseModel):
 
     def failing_modules(self) -> list[str]:
         return [name for name, b in self.per_module.items() if not b.all_passed]
+
+
+# ---------------------------------------------------------------------------
+# Week 2 / Week 3 placeholders
+#
+# These classes ship now so the schema is stable, but are not consumed by any
+# Week-1 code path. Refinement (Week 2) will populate PythonPackage; the
+# trace-conformance gate (Week 3) will populate TraceResult.
+# ---------------------------------------------------------------------------
 
 
 class PythonModuleSource(BaseModel):

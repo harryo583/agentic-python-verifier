@@ -26,23 +26,23 @@ from src.models.proof import ObligationResult, ProofBundle
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _obligation(status: str = "passed") -> ObligationResult:
-    return ObligationResult(obligation="init", status=status)  # type: ignore[arg-type]
+def _obligation(obligation: str = "init", status: str = "passed") -> ObligationResult:
+    return ObligationResult(obligation=obligation, status=status)  # type: ignore[arg-type]
 
 
 def _passing_proof_bundle() -> ProofBundle:
     return ProofBundle(
-        init=ObligationResult(obligation="init", status="passed"),
-        consec=ObligationResult(obligation="consec", status="passed"),
-        property=ObligationResult(obligation="property", status="passed"),
+        init=_obligation("init", "passed"),
+        consec=_obligation("consec", "passed"),
+        property=_obligation("property", "passed"),
     )
 
 
 def _failing_proof_bundle() -> ProofBundle:
     return ProofBundle(
-        init=ObligationResult(obligation="init", status="passed"),
-        consec=ObligationResult(obligation="consec", status="failed"),
-        property=ObligationResult(obligation="property", status="passed"),
+        init=_obligation("init", "passed"),
+        consec=_obligation("consec", "failed"),
+        property=_obligation("property", "passed"),
     )
 
 
@@ -218,6 +218,16 @@ def test_module_source_abs_rejects_pluscal_source():
         )
 
 
+def test_module_source_abs_rejects_abstraction_map():
+    with pytest.raises(ValidationError):
+        ModuleSource(
+            name="Queue",
+            role="abs",
+            tla_source="---- MODULE Queue_Abs ----\n====",
+            abstraction_map={"head": "queue[1]"},
+        )
+
+
 def test_module_source_abs_filename():
     assert _abs_source("Queue").filename == "Queue_Abs.tla"
 
@@ -233,6 +243,16 @@ def test_module_source_parent_rejects_abstraction_map():
             role="parent",
             tla_source="---- MODULE System ----\n====",
             abstraction_map={"x": "y"},
+        )
+
+
+def test_module_source_parent_rejects_pluscal_source():
+    with pytest.raises(ValidationError):
+        ModuleSource(
+            name="System",
+            role="parent",
+            tla_source="---- MODULE System ----\n====",
+            pluscal_source="(* --algorithm Dummy { skip } *)",
         )
 
 
