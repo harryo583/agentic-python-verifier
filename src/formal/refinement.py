@@ -103,9 +103,10 @@ def _render_instance(impl: ModuleSource) -> list[str]:
 
     abs_module = f"{impl.name}_Abs"
     inst_name = f"Abs_{impl.name}"
-    if not impl.abstraction_map:
-        # caller filters this out, but be defensive
-        return [f"{inst_name} == INSTANCE {abs_module}"]
+    assert impl.abstraction_map, (
+        f"_render_instance called with empty abstraction_map for {impl.name!r}; "
+        "caller must filter before calling"
+    )
 
     with_clauses = [
         f"{abs_var} <- {expr}"
