@@ -145,10 +145,28 @@ The three module roles
   pcal.trans, the module exposes `Init`, `Next`, `vars`, plus the impl's
   own `Inv` and `Property`. Carries an `abstraction_map` that relates each
   Abs variable to a TLA+ expression over the impl's concrete variables.
-* `<Parent>.tla` (role = "parent"): the composing module. Uses
-  `INSTANCE <Name>_Impl WITH ...` (or `EXTENDS` if appropriate) for each
-  child impl, then defines its own composed `Inv` and `Property` over the
-  composed state. Pure TLA+. **NO PlusCal block in the parent.**
+* `<Parent>.tla` (role = "parent"): the composing module. For each child
+  impl, write a **named** `INSTANCE`: pick a 1-3 letter alias (e.g. `Q`,
+  `L`, `Net`) and write `<Alias> == INSTANCE <Name>_Impl WITH ...`,
+  substituting the parent's own VARIABLES for the impl's variables. Named
+  INSTANCE is required because every impl carries its own pcal-generated
+  `pc` variable; bare `INSTANCE Queue_Impl` would force two impls to share
+  one `pc`, which is unsound.
+
+  The parent declares its own `VARIABLES` for the composed state and then
+  defines:
+    - `Spec == <Alias1>!Spec /\\ <Alias2>!Spec /\\ ...` (composed behavior)
+    - `Inv  == ...` (composed inductive invariant; may reference
+      `<Alias>!Inv` from impls)
+    - `Property == ...` (target safety property)
+
+  Because the parent uses named INSTANCEs, every impl variable is reachable
+  as `<Alias>!var`. The corresponding `abstraction_map` on each impl must
+  emit expressions in that form: `{"queue": "Q!buffer"}`, not
+  `{"queue": "buffer"}`. The refinement aux module pastes those
+  expressions verbatim into WITH clauses.
+
+  Pure TLA+. **NO PlusCal block in the parent.**
 
 Composition rules (read carefully)
 ----------------------------------

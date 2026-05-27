@@ -186,8 +186,10 @@ _MODULE_SOURCE_PROPS: dict[str, Any] = {
         "type": "object",
         "description": (
             "For impl modules only: maps each variable of the sibling "
-            "<Name>_Abs module to a TLA+ expression over this impl's "
-            "variables. Used to build the refinement aux module."
+            "<Name>_Abs module to a TLA+ expression. Expressions must use "
+            "the parent's qualified-alias form (e.g. 'Q!buffer'), not bare "
+            "impl variable names, because the refinement aux module EXTENDS "
+            "the parent which composes impls via named INSTANCE."
         ),
         "additionalProperties": {"type": "string"},
         "default": {},
