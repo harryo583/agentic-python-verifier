@@ -147,6 +147,180 @@ REFINE_TOOL: dict[str, Any] = {
 }
 
 
+_MODULE_SOURCE_PROPS: dict[str, Any] = {
+    "name": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "description": (
+            "Conceptual module name from the plan; final file names are "
+            "<name>_Abs.tla / <name>_Impl.tla."
+        ),
+    },
+    "role": {
+        "type": "string",
+        "enum": ["abs", "impl"],
+        "description": (
+            "'abs' = abstract contract (pure TLA+ Spec / Inv). "
+            "'impl' = concrete implementation containing a PlusCal block."
+        ),
+    },
+    "tla_source": {
+        "type": "string",
+        "description": (
+            "Full TLA+ module source: `---- MODULE <Name>_Abs ----` or "
+            "`---- MODULE <Name>_Impl ----`. For impls, this must contain a "
+            "`(* --algorithm <Name> ... *)` block; pcal.trans will rewrite "
+            "the file in place. Do NOT pre-insert `\\* BEGIN TRANSLATION`."
+        ),
+    },
+    "pluscal_source": {
+        "type": "string",
+        "description": (
+            "For impl modules only: same text as `tla_source`. The verifier "
+            "uses presence of this field as a flag to call pcal.trans. Leave "
+            "unset for abs modules."
+        ),
+    },
+    "constants": _CONSTANTS_SCHEMA,
+    "abstraction_map": {
+        "type": "object",
+        "description": (
+            "For impl modules only: maps each variable of the sibling "
+            "<Name>_Abs module to a TLA+ expression over this impl's "
+            "variables. Used to build the refinement aux module."
+        ),
+        "additionalProperties": {"type": "string"},
+        "default": {},
+    },
+    "invariant_name": {"type": "string", "default": "Inv"},
+    "property_name": {"type": "string", "default": "Property"},
+}
+
+
+_PARENT_SOURCE_PROPS: dict[str, Any] = {
+    "name": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "description": "Parent module name (matches plan.parent_name).",
+    },
+    "tla_source": {
+        "type": "string",
+        "description": (
+            "Full TLA+ module source for the parent: `---- MODULE <Name> ----` "
+            "that EXTENDS / INSTANCEs each <Child>_Impl and defines composed "
+            "Inv and Property. No PlusCal block here — composition lives "
+            "purely at the TLA+ layer."
+        ),
+    },
+    "constants": _CONSTANTS_SCHEMA,
+    "invariant_name": {"type": "string", "default": "Inv"},
+    "property_name": {"type": "string", "default": "Property"},
+}
+
+
+PROPOSE_BUNDLE_TOOL: dict[str, Any] = {
+    "name": "propose_module_bundle",
+    "description": (
+        "Emit a verifiable multi-module ModuleBundle: a parent composition "
+        "module plus, for each plan child, an <Name>_Abs (abstract contract) "
+        "and <Name>_Impl (PlusCal implementation). Each impl carries an "
+        "abstraction_map relating its concrete variables to its sibling Abs "
+        "variables (used to build the refinement obligation per Hillel "
+        "Wayne's ADT pattern). PlusCal cannot compose — the parent module "
+        "INSTANCEs each impl and defines the composed Inv and Property."
+    ),
+    "input_schema": {
+        "type": "object",
+        "required": ["slug", "parent", "modules"],
+        "properties": {
+            "slug": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "description": "Lower-snake-case slug used for output directories.",
+            },
+            "parent": {
+                "type": "object",
+                "required": ["name", "tla_source"],
+                "properties": _PARENT_SOURCE_PROPS,
+            },
+            "modules": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 8,
+                "description": (
+                    "Abs and impl module sources. Typical shape: one Abs + "
+                    "one Impl per plan child, so 4-8 entries for a 2-4 child "
+                    "plan."
+                ),
+                "items": {
+                    "type": "object",
+                    "required": ["name", "role", "tla_source"],
+                    "properties": _MODULE_SOURCE_PROPS,
+                },
+            },
+            "notes": {"type": "string", "default": ""},
+        },
+    },
+}
+
+
+REPAIR_BUNDLE_TOOL: dict[str, Any] = {
+    "name": "repair_module_bundle",
+    "description": (
+        "Emit a revised ModuleBundle after one or more proof obligations "
+        "failed (a per-impl Init/Consec/Property, or the refinement "
+        "obligation across all impls). Diagnose whether a specific module's "
+        "Inv was too weak/strong, its PlusCal is wrong, its abstraction_map "
+        "is wrong, or the parent's composed Inv/Property is wrong, and revise "
+        "accordingly."
+    ),
+    "input_schema": {
+        "type": "object",
+        "required": [
+            "reasoning",
+            "targeted_failure",
+            "slug",
+            "parent",
+            "modules",
+        ],
+        "properties": {
+            "reasoning": {
+                "type": "string",
+                "description": "Brief diagnosis of which obligation failed and what changed.",
+            },
+            "targeted_failure": {
+                "type": "string",
+                "description": (
+                    "Free-form pointer at the failure: a module name + "
+                    "obligation ('Queue/consec'), or 'refinement', or "
+                    "'parent/property'."
+                ),
+            },
+            "slug": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$",
+            },
+            "parent": {
+                "type": "object",
+                "required": ["name", "tla_source"],
+                "properties": _PARENT_SOURCE_PROPS,
+            },
+            "modules": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 8,
+                "items": {
+                    "type": "object",
+                    "required": ["name", "role", "tla_source"],
+                    "properties": _MODULE_SOURCE_PROPS,
+                },
+            },
+            "notes": {"type": "string", "default": ""},
+        },
+    },
+}
+
+
 PROPOSE_DECOMPOSITION_TOOL: dict[str, Any] = {
     "name": "propose_decomposition",
     "description": (

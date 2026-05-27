@@ -125,6 +125,98 @@ Translation rules
 """
 
 
+SYNTH_BUNDLE_SYSTEM = """\
+You are a formal-methods engineer expanding a decomposition plan into a
+verifiable multi-module ModuleBundle. The plan you receive lists a parent
+module plus 2-4 child modules with abstract interfaces. For each child you
+emit TWO TLA+ files; you also emit ONE parent TLA+ file. Total: 1 parent +
+2 files per child.
+
+Your output is a single call to the `propose_module_bundle` tool.
+Do NOT respond with prose - call the tool exactly once.
+
+The three module roles
+----------------------
+* `<Name>_Abs.tla` (role = "abs"): the abstract contract for one child.
+  Defines `Init`, `Next`, `Spec`, and an `Inv`. Pure TLA+, no PlusCal.
+  Variables here are the *abstract* state — what the parent sees.
+* `<Name>_Impl.tla` (role = "impl"): the concrete implementation. A TLA+
+  module containing a `(* --algorithm <Name> ... *)` PlusCal block. After
+  pcal.trans, the module exposes `Init`, `Next`, `vars`, plus the impl's
+  own `Inv` and `Property`. Carries an `abstraction_map` that relates each
+  Abs variable to a TLA+ expression over the impl's concrete variables.
+* `<Parent>.tla` (role = "parent"): the composing module. Uses
+  `INSTANCE <Name>_Impl WITH ...` (or `EXTENDS` if appropriate) for each
+  child impl, then defines its own composed `Inv` and `Property` over the
+  composed state. Pure TLA+. **NO PlusCal block in the parent.**
+
+Composition rules (read carefully)
+----------------------------------
+PlusCal cannot compose. Composition lives at the TLA+ layer in the parent
+module. Inside an impl's PlusCal block, you may NOT write `INSTANCE`. All
+inter-module wiring goes in the parent.
+
+For each impl, supply `abstraction_map` as a dict mapping each Abs variable
+name to a TLA+ expression over the impl's variables. For example, if Queue_Abs
+has variable `queue` and Queue_Impl tracks `buffer` and `head`, then the map
+might be `{"queue": "buffer"}`. The orchestrator uses this to build a
+Refinement_<Parent>.tla that asserts each impl refines its abs.
+
+Per-module proof obligations
+----------------------------
+For each impl, TLC checks the same three obligations as the single-module
+flow: (Init => Inv), (Inv /\\ Next => Inv'), (Inv => Property). All the
+inductive-invariant rules from the single-module prompt apply unchanged —
+explicit set-membership, pc enumeration, small finite CONSTANTS.
+
+A 4th obligation, refinement, checks that the composed impls satisfy each
+Abs's Spec via the abstraction maps.
+
+CONSTANTS
+---------
+Keep every domain tiny (single integer or 3-element set). Each module
+declares only the CONSTANTS it uses; parent declares the union.
+
+If all four classes of obligations pass, the bundle is verified and gets
+lowered to Python. If any fails, you'll be called again with structured
+feedback identifying the failing module + obligation; revise just that
+piece.
+"""
+
+
+REPAIR_BUNDLE_SYSTEM = """\
+You are repairing a multi-module ModuleBundle that failed one or more proof
+obligations under TLC. The user message lists each failing obligation: it
+may be a per-impl (Init/Consec/Property) failure, or the cross-module
+refinement obligation.
+
+Your task
+---------
+Diagnose the failures and emit a revised bundle via the
+`repair_module_bundle` tool. Set `targeted_failure` to point at the most
+important failure (e.g. `"Queue/consec"`, `"refinement"`, `"parent/property"`).
+Provide a brief `reasoning`.
+
+Diagnosis guidance
+------------------
+* Per-impl `init`/`consec`/`property` failures behave exactly like the
+  single-module flow: weaken or strengthen `Inv`, or fix the algorithm.
+* `refinement` failure: the impl's abstraction_map is wrong (e.g. it
+  projects onto a state that does NOT correspond to a valid Abs state) OR
+  the impl does something the Abs cannot simulate. Either fix the map or
+  restrict the impl.
+* Parent failures: the parent's composed `Inv` does not hold, or fails to
+  imply the parent's `Property`. Strengthen the composed `Inv`, possibly
+  pulling in an additional impl invariant via INSTANCE projection.
+
+Output rules
+------------
+Re-emit the WHOLE bundle (parent + every module), even unchanged ones, so
+the verifier can re-run cleanly. Do not respond with prose; call
+`repair_module_bundle` exactly once.
+"""
+
+
 PLANNER_SYSTEM = """\
 You are a formal-methods architect. Given a natural-language requirement that
 describes a multi-component system, you decompose it into:
