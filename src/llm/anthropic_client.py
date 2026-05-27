@@ -41,11 +41,30 @@ def _is_overloaded(exc: BaseException) -> bool:
     return status == 529
 
 
+class TertiaryInvoker(Protocol):
+    """A drop-in replacement that returns an Anthropic-shaped response.
+
+    Used as the third-tier fallback when both Anthropic models 529.
+    """
+
+    def message(
+        self,
+        system: str,
+        messages: list[dict[str, Any]],
+        tools: Optional[list[dict[str, Any]]] = None,
+        tool_choice: Optional[dict[str, Any]] = None,
+    ) -> Any: ...
+
+
 class AnthropicClient:
     """A small adapter so agents can be tested without the real SDK.
 
-    Supports a fallback model: if the primary model returns an Anthropic
-    529 OverloadedError, the call is retried once on ``fallback_model``.
+    Fallback chain:
+      1. ``model`` (primary, e.g. ``claude-opus-4-7``)
+      2. ``fallback_model`` on the same Anthropic SDK (e.g. ``claude-opus-4-6``)
+      3. ``tertiary`` (e.g. an OpenAI adapter for ``gpt-5.4``)
+
+    Each tier only fires on a 529 OverloadedError from the previous tier.
     """
 
     def __init__(
@@ -55,9 +74,11 @@ class AnthropicClient:
         max_tokens: int = 8192,
         client: Optional[AnthropicProtocol] = None,
         fallback_model: Optional[str] = None,
+        tertiary: Optional[TertiaryInvoker] = None,
     ) -> None:
         self.model = model
         self.fallback_model = fallback_model
+        self.tertiary = tertiary
         self.max_tokens = max_tokens
         if client is not None:
             self._client = client
@@ -75,7 +96,8 @@ class AnthropicClient:
     ) -> Any:
         """Issue one Messages API call with the system prompt cached.
 
-        Falls back to ``self.fallback_model`` on 529 OverloadedError.
+        Falls back to ``self.fallback_model`` on 529 OverloadedError, then
+        to ``self.tertiary`` on a second 529.
         """
 
         system_blocks = [
@@ -98,16 +120,41 @@ class AnthropicClient:
 
         try:
             return self._client.messages.create(**kwargs)
-        except Exception as exc:
-            if not (_is_overloaded(exc) and self.fallback_model):
+        except Exception as primary_exc:
+            if not _is_overloaded(primary_exc):
                 raise
+            if not self.fallback_model and not self.tertiary:
+                raise
+
+            if self.fallback_model:
+                LOGGER.warning(
+                    "Primary model %s overloaded (529); falling back to %s.",
+                    self.model,
+                    self.fallback_model,
+                )
+                fallback_kwargs = dict(kwargs)
+                fallback_kwargs["model"] = self.fallback_model
+                try:
+                    return self._client.messages.create(**fallback_kwargs)
+                except Exception as fallback_exc:
+                    if not _is_overloaded(fallback_exc):
+                        raise
+                    if self.tertiary is None:
+                        raise
+
             LOGGER.warning(
-                "Primary model %s overloaded (529); falling back to %s.",
-                self.model,
-                self.fallback_model,
+                "Anthropic fallback %s also overloaded (529); falling back to tertiary "
+                "client (%s).",
+                self.fallback_model or "<none>",
+                getattr(self.tertiary, "model", type(self.tertiary).__name__),
             )
-            kwargs["model"] = self.fallback_model
-            return self._client.messages.create(**kwargs)
+            assert self.tertiary is not None
+            return self.tertiary.message(
+                system=system,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+            )
 
     @staticmethod
     def extract_tool_use(message: Any, expected_name: Optional[str] = None) -> ToolUse:

@@ -38,11 +38,21 @@ def run_pipeline(
     ensure_directory(settings.python_dir)
     ensure_directory(settings.work_dir)
 
-    client = client or AnthropicClient(
-        api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
-        model=settings.model,
-        fallback_model=settings.fallback_model,
-    )
+    if client is None:
+        tertiary = None
+        if settings.openai_api_key:
+            from src.llm.openai_adapter import OpenAIAdapter
+
+            tertiary = OpenAIAdapter(
+                api_key=settings.openai_api_key,
+                model=settings.openai_model,
+            )
+        client = AnthropicClient(
+            api_key=settings.anthropic_api_key,  # type: ignore[arg-type]
+            model=settings.model,
+            fallback_model=settings.fallback_model,
+            tertiary=tertiary,
+        )
     verifier = verifier or Verifier(settings)
     synth = SynthesisAgent(client)
     refine = RefineAgent(client)

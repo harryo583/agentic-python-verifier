@@ -82,6 +82,10 @@ both binaries the verifier shells out to.
 ```bash
 export TLA2TOOLS_JAR=/absolute/path/to/tla2tools.jar
 export ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional: enable the OpenAI tertiary fallback when both Anthropic
+# Opus tiers return 529.
+export OPENAI_API_KEY=sk-...
 ```
 
 (`TLA_TLC_JAR` is also accepted as a backward-compatible alias.)
@@ -171,13 +175,21 @@ pytest tests/test_e2e.py -m integration
 ## Tool stack
 
 - **LLM backbone:** Claude Opus 4.7 (`claude-opus-4-7`) via the Anthropic
-  Python SDK with function calling, with Claude Opus 4.6
-  (`claude-opus-4-6`) as the automatic fallback on a `529 OverloadedError`
-  (override either via `ANTHROPIC_MODEL` / `ANTHROPIC_FALLBACK_MODEL`).
-  Three tools: `propose_pluscal_with_invariant`,
+  Python SDK with function calling. Three-tier overload fallback chain:
+
+      claude-opus-4-7  --(529)-->  claude-opus-4-6  --(529)-->  gpt-5.4
+        ANTHROPIC_MODEL              ANTHROPIC_FALLBACK_MODEL    OPENAI_MODEL
+
+  Each tier only fires on a `529 OverloadedError` from the previous tier.
+  The OpenAI tier is enabled when `OPENAI_API_KEY` is set; if it isn't,
+  the chain stops at the second Anthropic model. The OpenAI adapter
+  translates Anthropic-shaped (system + messages + tools + tool_choice)
+  arguments into OpenAI Chat Completions, parses the response back into
+  Anthropic-shaped `tool_use` blocks, and the agents stay unaware of the
+  switch. Three tools: `propose_pluscal_with_invariant`,
   `repair_after_counterexample`, `emit_python_module`. The system prompt
   is wrapped in `cache_control: ephemeral` so repeated repair iterations
-  hit the prompt cache.
+  hit the Anthropic prompt cache.
 - **Verification engine:** TLC model checker (`tlc2.TLC`), invoked as a
   subprocess with `-config <obligation>.cfg -workers auto -deadlock`.
 - **PlusCal support:** the official `pcal.trans` translator, also bundled

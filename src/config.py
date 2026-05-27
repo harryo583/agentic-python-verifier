@@ -15,6 +15,7 @@ load_dotenv()
 
 DEFAULT_MODEL = "claude-opus-4-7"
 DEFAULT_FALLBACK_MODEL = "claude-opus-4-6"
+DEFAULT_OPENAI_MODEL = "gpt-5.4"
 
 
 @dataclass(slots=True)
@@ -28,9 +29,11 @@ class Settings:
     work_dir: Path
 
     anthropic_api_key: Optional[str]
+    openai_api_key: Optional[str]
     tla2tools_jar: Optional[str]
     model: str
     fallback_model: Optional[str]
+    openai_model: str
     max_iterations: int
     tlc_timeout_s: int
     log_level: str
@@ -67,10 +70,12 @@ def get_settings(
         python_dir=python_dir,
         work_dir=work_dir,
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
         tla2tools_jar=os.getenv("TLA2TOOLS_JAR") or os.getenv("TLA_TLC_JAR"),
         model=model or os.getenv("ANTHROPIC_MODEL", DEFAULT_MODEL),
         fallback_model=fallback_model
         or os.getenv("ANTHROPIC_FALLBACK_MODEL", DEFAULT_FALLBACK_MODEL),
+        openai_model=os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL),
         max_iterations=max_iterations
         or int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
         tlc_timeout_s=int(os.getenv("TLC_TIMEOUT_S", "120")),
