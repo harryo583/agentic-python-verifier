@@ -1,0 +1,17 @@
+Implement a multi-account ledger with audit-log integrity.
+
+Components:
+  1. Two accounts A and B, each with a non-negative integer balance bounded
+     by 10. The system starts with A=5, B=5.
+  2. An append-only ledger of transfer entries. Each entry records
+     (from, to, amount) and is added atomically with the balance change.
+  3. A transfer action Transfer(from, to, amount) that debits the source
+     and credits the destination, appending one ledger entry. Transfer is
+     rejected if it would overdraft the source or overflow the destination.
+
+Safety properties:
+  - Conservation: the sum of all account balances is invariant (always 10).
+  - Audit integrity: the sum over the ledger of (+amount to "to") minus
+    (+amount from "from") equals the difference between current and initial
+    balance for every account.
+  - No account balance ever goes negative or above 10.

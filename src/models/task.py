@@ -8,6 +8,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.models.bundle import (
+    CompositionalProofBundle,
+    ModuleBundle,
+)
+from src.models.decomposition import DecompositionPlan
 from src.models.proof import ProofBundle
 from src.models.synthesis import SynthesisProposal
 
@@ -32,7 +37,7 @@ class TaskRequest(BaseModel):
 
 
 class PipelineResult(BaseModel):
-    """Final outcome of a pipeline run."""
+    """Final outcome of a single-module (legacy) pipeline run."""
 
     status: Literal["verified", "unverified"]
     iterations: int
@@ -40,5 +45,20 @@ class PipelineResult(BaseModel):
     bundle: ProofBundle
     tla_path: Optional[Path] = None
     python_path: Optional[Path] = None
+
+    model_config = {"arbitrary_types_allowed": True}
+
+
+class CompositionalPipelineResult(BaseModel):
+    """Final outcome of a compositional (multi-module) pipeline run."""
+
+    status: Literal["verified", "unverified", "planner_failed"]
+    iterations: int
+    plan: Optional[DecompositionPlan] = None
+    bundle: Optional[ModuleBundle] = None
+    proof: Optional[CompositionalProofBundle] = None
+    tla_dir: Optional[Path] = None
+    python_dir: Optional[Path] = None
+    note: str = ""
 
     model_config = {"arbitrary_types_allowed": True}

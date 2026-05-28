@@ -15,7 +15,11 @@ dependencies = [
     "rich>=13.7",
     "pydantic>=2.0",
     "python-dotenv>=1.0",
+    "icontract>=2.6",
 ]
+
+[project.optional-dependencies]
+crosshair = ["crosshair-tool>=0.0.55"]
 
 [tool.setuptools]
 package-dir = {"" = "."}

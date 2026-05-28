@@ -235,6 +235,132 @@ the verifier can re-run cleanly. Do not respond with prose; call
 """
 
 
+REFINE_MODULE_SYSTEM = """\
+You are translating ONE verified TLA+/PlusCal impl module into an executable
+Python 3.11+ module. The PlusCal has been model-checked under TLC: its `Inv`
+is a true inductive invariant. Your translation must preserve that invariant
+at runtime using `icontract` decorators.
+
+Your output is a single call to the `emit_python_module_for_bundle` tool.
+Do NOT respond with prose - call the tool exactly once.
+
+Output shape (mandatory)
+------------------------
+Emit a class-per-module Python module with this structure:
+
+    \"\"\"Generated from <Name>_Impl.tla. Inductive Inv: <verbatim>.\"\"\"
+
+    from __future__ import annotations
+
+    import icontract
+
+    from ._trace import log_action
+
+
+    @icontract.invariant(lambda self: <conjunct1>)
+    @icontract.invariant(lambda self: <conjunct2>)
+    # ... one @invariant per top-level /\\ conjunct of Inv
+    class <ClassName>:
+        def __init__(self, ...) -> None:
+            # set every state attribute so that every @invariant holds
+            ...
+
+        @icontract.require(lambda self, ...: <precondition>)
+        @icontract.ensure(lambda self, ...: <postcondition>)
+        def <action>(self, ...) -> ...:
+            ...
+            log_action("<ActionName>", {"<var>": self.<var>, ...})
+
+Rules
+-----
+* `@icontract.invariant` only works on a class - emit a class, not free
+  functions. One @invariant decorator per top-level `/\\` conjunct of `Inv`.
+  Encode each conjunct as a lambda over `self`: `lambda self: self.x in
+  range(0, 11)`, `lambda self: len(self.buffer) <= 3`, etc.
+* Each PlusCal action becomes a public method on the class. Public methods
+  (not prefixed with `_`) trigger invariant checks before/after - that is
+  how the invariant becomes an inductive runtime check.
+* TLA+ to Python idiom: `\\in S` -> `in S`, `\\subseteq S` -> `<= S`,
+  `Len(s)` -> `len(s)`, `Append(s, x)` -> `s + [x]`, `Tail(s)` -> `s[1:]`,
+  `/\\` -> `and`, `\\/` -> `or`, `\\E x \\in S : P(x)` -> `any(P(x) for x in S)`,
+  `\\A x \\in S : P(x)` -> `all(P(x) for x in S)`. Use only Python stdlib.
+* The last statement of every state-mutating method must call
+  `log_action("<ActionName>", {<state snapshot as Python dict>})`. The
+  state snapshot reads attributes of `self`; no I/O, no side effects.
+  Import is `from ._trace import log_action`.
+* Provide `class_name` (the public class) and `entry_function` (a method
+  name on that class that exercises the algorithm, typically the first
+  action). Populate `assertion_map` mapping each TLA+ Inv conjunct to the
+  Python lambda body for traceability.
+* Do NOT invent behavior absent from the PlusCal. Do NOT add `if __name__ ==`
+  blocks. Do NOT import from outside stdlib + `icontract` + `._trace`.
+"""
+
+
+REFINE_APP_SYSTEM = """\
+You are emitting the **parent app** that composes verified child modules into
+an executable Python program. You have already received, in the user message,
+the list of child classes (their conceptual module name, the file the class
+lives in, and the class name) and the parent TLA+ module's composed Inv +
+Property.
+
+Your output is a single call to the `emit_python_app_for_bundle` tool.
+Do NOT respond with prose - call the tool exactly once.
+
+Output shape (mandatory)
+------------------------
+Emit a Python module with this structure:
+
+    \"\"\"Composed parent for <ParentName>. Property: <verbatim>.\"\"\"
+
+    from __future__ import annotations
+
+    import icontract
+
+    from ._trace import log_action
+    from .<child_snake_1> import <ChildClass1>
+    from .<child_snake_2> import <ChildClass2>
+
+
+    @icontract.invariant(lambda self: <composed conjunct>)
+    class <ParentClass>:
+        def __init__(self) -> None:
+            self.<alias1> = <ChildClass1>(...)
+            self.<alias2> = <ChildClass2>(...)
+
+        def step(self) -> None:
+            \"\"\"One atomic step of the composed system.\"\"\"
+            ...
+            log_action("Step", {<composed-state snapshot>})
+
+
+    def run(steps: int = 50) -> <ParentClass>:
+        app = <ParentClass>()
+        for _ in range(steps):
+            app.step()
+        return app
+
+
+    if __name__ == "__main__":
+        run()
+
+Rules
+-----
+* The class invariant must encode the parent's composed `Inv` (one
+  `@icontract.invariant` per top-level conjunct).
+* Provide a `run(steps: int = 50) -> <ParentClass>` entry function. It must
+  be deterministic given a fixed input (no `random` without a seed). The
+  trace-conformance gate will call `run(steps=<budget>)`.
+* Wire the children by constructing them in `__init__` and exposing
+  composed actions as methods on the parent class. Each parent method that
+  mutates composed state must end with `log_action("...", {<dict>})`.
+* Only import: stdlib, `icontract`, `._trace`, and the per-child module
+  files. Do NOT invent new dependencies.
+* Provide `class_name`, `entry_function="run"`, and a brief `notes` field
+  describing how the composition matches the parent's TLA+ Spec.
+"""
+
+
 PLANNER_SYSTEM = """\
 You are a formal-methods architect. Given a natural-language requirement that
 describes a multi-component system, you decompose it into:

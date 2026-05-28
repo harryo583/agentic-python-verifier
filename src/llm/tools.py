@@ -323,6 +323,108 @@ REPAIR_BUNDLE_TOOL: dict[str, Any] = {
 }
 
 
+EMIT_PYTHON_MODULE_FOR_BUNDLE_TOOL: dict[str, Any] = {
+    "name": "emit_python_module_for_bundle",
+    "description": (
+        "Translate one verified TLA+/PlusCal impl module into an executable "
+        "Python 3.11+ module using icontract decorators. The module must "
+        "define a class with @icontract.invariant decorators (one per "
+        "top-level Inv conjunct), public methods for each PlusCal action "
+        "decorated with @icontract.require / @icontract.ensure, and each "
+        "state-mutating method must end with a call to log_action(...). "
+        "Imports are limited to: stdlib, icontract, ._trace."
+    ),
+    "input_schema": {
+        "type": "object",
+        "required": ["python_module", "class_name", "entry_function"],
+        "properties": {
+            "python_module": {
+                "type": "string",
+                "description": (
+                    "Complete .py source. Must `import icontract` and "
+                    "`from ._trace import log_action`. May import only "
+                    "Python stdlib in addition."
+                ),
+            },
+            "class_name": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9_]*$",
+                "description": (
+                    "Name of the public class the parent app will import. "
+                    "Typically matches the TLA+ module's conceptual name."
+                ),
+            },
+            "entry_function": {
+                "type": "string",
+                "description": (
+                    "Method on the class that exercises the algorithm, "
+                    "e.g. 'enqueue' or 'step'."
+                ),
+            },
+            "assertion_map": {
+                "type": "array",
+                "description": (
+                    "Per-conjunct mapping from a TLA+ Inv clause to the "
+                    "Python lambda body inside the corresponding "
+                    "@icontract.invariant."
+                ),
+                "items": {
+                    "type": "object",
+                    "required": ["tla_clause", "python_check"],
+                    "properties": {
+                        "tla_clause": {"type": "string"},
+                        "python_check": {"type": "string"},
+                    },
+                },
+                "default": [],
+            },
+            "notes": {"type": "string", "default": ""},
+        },
+    },
+}
+
+
+EMIT_PYTHON_APP_FOR_BUNDLE_TOOL: dict[str, Any] = {
+    "name": "emit_python_app_for_bundle",
+    "description": (
+        "Emit the parent app module that composes the already-translated "
+        "child classes into an executable Python program. Imports the child "
+        "classes by relative import (`.<snake>`) and exposes a "
+        "`run(steps: int = 50) -> <ParentClass>` entry function. The parent "
+        "class itself carries @icontract.invariant decorators reflecting the "
+        "parent's composed Inv. State-mutating methods end with "
+        "log_action(...)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "required": ["python_module", "class_name", "entry_function"],
+        "properties": {
+            "python_module": {
+                "type": "string",
+                "description": (
+                    "Complete .py source for the parent app. Must use "
+                    "relative imports (`from .<snake> import <Class>`) "
+                    "for each child."
+                ),
+            },
+            "class_name": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9_]*$",
+                "description": "Name of the composed parent class.",
+            },
+            "entry_function": {
+                "type": "string",
+                "description": (
+                    "Function name that drives the composed system, "
+                    "typically 'run'."
+                ),
+            },
+            "notes": {"type": "string", "default": ""},
+        },
+    },
+}
+
+
 PROPOSE_DECOMPOSITION_TOOL: dict[str, Any] = {
     "name": "propose_decomposition",
     "description": (

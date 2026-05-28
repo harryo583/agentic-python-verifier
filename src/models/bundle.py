@@ -144,27 +144,46 @@ class CompositionalProofBundle(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Week 2 / Week 3 placeholders
-#
-# These classes ship now so the schema is stable, but are not consumed by any
-# Week-1 code path. Refinement (Week 2) will populate PythonPackage; the
-# trace-conformance gate (Week 3) will populate TraceResult.
+# Refinement (Week 2) and trace-gate (Week 3) outputs.
 # ---------------------------------------------------------------------------
 
 
 class PythonModuleSource(BaseModel):
-    """One Python module emitted by the refinement agent (Week 2 placeholder)."""
+    """One Python module emitted by the refinement agent.
+
+    `name` is the impl module's conceptual name (matches ``ModuleSource.name``);
+    file name on disk is ``<snake_name>.py`` (lower-snake-case derived from
+    ``name``). `class_name` is the icontract class that the parent app imports.
+    """
 
     name: str
     source: str
+    class_name: str = ""
     entry_function: str = ""
+
+    @property
+    def filename(self) -> str:
+        """Snake-cased file name for a CHILD module (``queue.py`` from
+        ``Queue``). Parent apps are written to a hardcoded ``app.py`` by the
+        pipeline; do not call this on ``PythonPackage.parent_app``.
+        """
+        return f"{to_snake_case(self.name)}.py"
 
 
 class PythonPackage(BaseModel):
-    """A package of Python modules + a parent app file (Week 2 placeholder)."""
+    """A package of Python modules + a parent app file.
 
+    On disk the package is written as
+    ``<python_dir>/<slug>/{<mod>.py, app.py, _trace.py, __init__.py}``.
+    `parent_app` is the composed orchestrator that imports each child class
+    and runs them; ``_trace.py`` is generated as a stable shim regardless of
+    the LLM output (see ``src/agents/refine_agent.py``).
+    """
+
+    slug: str = ""
     modules: list[PythonModuleSource] = Field(default_factory=list)
     parent_app: Optional[PythonModuleSource] = None
+    notes: str = ""
 
 
 class TraceResult(BaseModel):
@@ -173,3 +192,14 @@ class TraceResult(BaseModel):
     conforms: bool
     divergence_step: Optional[int] = None
     note: str = ""
+
+
+def to_snake_case(name: str) -> str:
+    """Convert CamelCase / PascalCase identifier to lower_snake_case."""
+
+    out: list[str] = []
+    for i, ch in enumerate(name):
+        if ch.isupper() and i > 0 and not name[i - 1].isupper():
+            out.append("_")
+        out.append(ch.lower())
+    return "".join(out)
