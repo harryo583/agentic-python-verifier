@@ -1,0 +1,1 @@
+Implement a finite counting semaphore with Capacity = 2 and at most three clients. Each client is either outside or inside the critical section. An acquire step may move an outside client inside only when fewer than Capacity clients are inside; a release step may move an inside client outside. The safety property is that the number of inside clients never exceeds Capacity.

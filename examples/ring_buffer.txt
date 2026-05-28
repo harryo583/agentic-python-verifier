@@ -1,0 +1,1 @@
+Implement a finite ring buffer with Capacity = 3. The buffer stores a sequence of items drawn from a small set, supports enqueue only when the buffer is not full, and supports dequeue only when the buffer is not empty. The safety property is that the buffer length is always between 0 and Capacity and all stored items remain in the finite item set.

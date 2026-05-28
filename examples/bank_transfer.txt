@@ -1,1 +1,1 @@
-Implement a bank transfer between two accounts that never allows a negative balance and preserves the total sum of money.
+Implement a finite two-account bank transfer model. Account balances start as small non-negative integers with Total = 4, each transfer moves exactly one unit from one account to the other only when the source has at least one unit, and the safety property is that no balance is negative and the sum of both balances is always Total.

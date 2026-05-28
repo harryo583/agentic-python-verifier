@@ -1,1 +1,1 @@
-Implement a bounded counter from 0 to 10.
+Implement a finite bounded counter with MaxValue = 5. The counter starts at 0, supports an increment step when it is below MaxValue, and otherwise stays at MaxValue. The safety property is that the counter is always an integer in 0..MaxValue and never exceeds MaxValue.

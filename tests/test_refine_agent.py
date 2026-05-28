@@ -37,8 +37,54 @@ def test_split_invariant_conjuncts_extracts_three_clauses():
     assert any("\\in 0..10" in p for p in parts)
 
 
+def test_split_invariant_conjuncts_respects_nested_conjunctions():
+    pluscal = """\
+---- MODULE NestedInv ----
+VARIABLE x, y
+
+Inv ==
+    /\\ x \\in {0, 1}
+    /\\ (x = 0 /\\ y = 1)
+    /\\ y >= 0 \\* comment with /\\ text
+
+Property == y >= 0
+====
+"""
+
+    parts = _split_invariant_conjuncts(pluscal, "Inv")
+
+    assert parts == [
+        "x \\in {0, 1}",
+        "(x = 0 /\\ y = 1)",
+        "y >= 0 \\* comment with /\\ text",
+    ]
+
+
 def test_split_invariant_conjuncts_returns_empty_when_missing():
     assert _split_invariant_conjuncts(_PLUSCAL, "Nonexistent") == []
+
+
+def test_split_invariant_conjuncts_honors_requested_invariant_name():
+    pluscal = """\
+---- MODULE TwoInvariants ----
+VARIABLE x
+
+Init == x = 0
+Next == x' = x + 1
+
+WeakInv == x >= 0
+
+StrongInv == x >= 0
+    /\\ x <= 5
+    /\\ x \\in 0..5
+
+Property == x <= 5
+====
+"""
+
+    parts = _split_invariant_conjuncts(pluscal, "StrongInv")
+
+    assert parts == ["x >= 0", "x <= 5", "x \\in 0..5"]
 
 
 @dataclass
@@ -85,7 +131,7 @@ def test_refine_agent_returns_module_and_passes_conjuncts_to_llm():
             )
         ]
     )
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
     agent = RefineAgent(client)
 
     proposal = SynthesisProposal(
@@ -102,3 +148,49 @@ def test_refine_agent_returns_module_and_passes_conjuncts_to_llm():
     user_text = fake.calls[0]["messages"][0]["content"][0]["text"]
     assert "counter >= 0" in user_text
     assert "counter <= 10" in user_text
+
+
+def test_refine_agent_uses_custom_invariant_name_in_prompt():
+    fake = FakeAnthropic(
+        [
+            FakeMessage(
+                content=[
+                    FakeBlock(
+                        type="tool_use",
+                        id="tu_1",
+                        name="emit_python_module",
+                        input={
+                            "python_module": "def run(x):\n    assert x <= 5\n    return x\n",
+                            "entry_function": "run",
+                            "assertion_map": [
+                                {"tla_clause": "x <= 5", "python_check": "x <= 5"}
+                            ],
+                        },
+                    )
+                ]
+            )
+        ]
+    )
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
+    agent = RefineAgent(client)
+    proposal = SynthesisProposal(
+        module_name="TwoInvariants",
+        slug="two_invariants",
+        pluscal="""\
+---- MODULE TwoInvariants ----
+VARIABLE x
+WeakInv == x >= 0
+StrongInv == x >= 0
+    /\\ x <= 5
+Property == x <= 5
+====
+""",
+        invariant_name="StrongInv",
+    )
+
+    refined = agent.to_python(proposal)
+
+    assert refined.assertion_map == [{"tla_clause": "x <= 5", "python_check": "x <= 5"}]
+    user_text = fake.calls[0]["messages"][0]["content"][0]["text"]
+    assert "Inductive invariant (StrongInv) conjuncts" in user_text
+    assert "- x <= 5" in user_text

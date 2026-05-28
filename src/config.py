@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-DEFAULT_MODEL = "claude-opus-4-7"
-DEFAULT_FALLBACK_MODEL = "claude-opus-4-6"
+DEFAULT_MODEL = "claude-opus-4-1-20250805"
+DEFAULT_FALLBACK_MODEL = "claude-opus-4-20250514"
 
 
 @dataclass(slots=True)

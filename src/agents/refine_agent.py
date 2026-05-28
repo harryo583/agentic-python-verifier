@@ -51,22 +51,60 @@ class RefineAgent:
         )
 
 
-_INV_DEF_RE = re.compile(
-    r"^(?P<name>\w+)\s*==\s*(?P<body>.+?)(?=^\w+\s*==|\Z)",
+_DEF_RE = re.compile(
+    r"^\s*(?P<name>[A-Za-z_]\w*)\s*(?:\([^)]*\))?\s*==\s*(?P<body>.*)$",
+    re.MULTILINE,
+)
+_DEF_BOUNDARY_RE = re.compile(
+    r"^\s*(?:[A-Za-z_]\w*\s*(?:\([^)]*\))?\s*==|====)",
     re.MULTILINE | re.DOTALL,
 )
 
 
 def _split_invariant_conjuncts(pluscal: str, invariant_name: str) -> list[str]:
-    """Best-effort split of `Inv == A /\\ B /\\ C` into [A, B, C]."""
+    """Best-effort split of `Inv == A /\\ B /\\ C` into top-level conjuncts."""
 
-    body: str | None = None
-    for match in _INV_DEF_RE.finditer(pluscal):
-        if match.group("name") == invariant_name:
-            body = match.group("body").strip()
-            break
+    body = _extract_operator_body(pluscal, invariant_name)
     if not body:
         return []
 
-    parts = re.split(r"\s*/\\\s*", body)
+    parts = _split_top_level_conjunction(body)
     return [p.strip() for p in parts if p.strip()]
+
+
+def _extract_operator_body(pluscal: str, name: str) -> str:
+    for match in _DEF_RE.finditer(pluscal):
+        if match.group("name") != name:
+            continue
+        body_start = match.start("body")
+        boundary = _DEF_BOUNDARY_RE.search(pluscal, match.end())
+        body_end = boundary.start() if boundary else len(pluscal)
+        return pluscal[body_start:body_end].strip()
+    return ""
+
+
+def _split_top_level_conjunction(body: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    i = 0
+    while i < len(body):
+        ch = body[i]
+        if ch == "\\" and i + 1 < len(body) and body[i + 1] == "*":
+            newline = body.find("\n", i)
+            if newline == -1:
+                break
+            i = newline + 1
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}" and depth > 0:
+            depth -= 1
+        elif ch == "/" and i + 1 < len(body) and body[i + 1] == "\\" and depth == 0:
+            parts.append(body[start:i])
+            i += 2
+            start = i
+            continue
+        i += 1
+    parts.append(body[start:])
+    return parts

@@ -58,7 +58,7 @@ def _repair_block(input_data: dict[str, Any], tool_use_id: str = "tu_2") -> Fake
 
 def _make_client(scripted: list[FakeMessage]) -> tuple[AnthropicClient, FakeAnthropic]:
     fake = FakeAnthropic(scripted)
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
     return client, fake
 
 
@@ -82,7 +82,7 @@ def test_propose_returns_validated_proposal_and_history():
     assert any(b.get("type") == "tool_use" for b in history[1]["content"])
 
     call = fake.calls[0]
-    assert call["model"] == "claude-opus-4-7"
+    assert call["model"] == "claude-opus-4-1-20250805"
     assert call["tool_choice"]["name"] == "propose_pluscal_with_invariant"
     assert call["system"][0]["cache_control"] == {"type": "ephemeral"}
 
@@ -144,6 +144,81 @@ def test_repair_serialises_failure_and_returns_revision():
 
     assert len(new_history) == 4
     assert new_history[-1]["role"] == "assistant"
+
+
+def test_repair_feedback_includes_notes_and_raw_counterexample_excerpt():
+    proposal_input = {
+        "module_name": "Bank",
+        "slug": "bank",
+        "pluscal": "---- MODULE Bank ----\n====",
+    }
+    repair_input = {
+        **proposal_input,
+        "reasoning": "Bounded balances explicitly.",
+        "targeted_obligation": "property",
+    }
+    client, fake = _make_client([FakeMessage(content=[_repair_block(repair_input)])])
+    agent = SynthesisAgent(client)
+    history = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tu_prev",
+                    "name": "propose_pluscal_with_invariant",
+                    "input": proposal_input,
+                }
+            ],
+        }
+    ]
+    bundle = ProofBundle(
+        init=ObligationResult(
+            obligation="init",
+            status="error",
+            note="identifier BalanceDomain is undefined",
+        ),
+        consec=ObligationResult(
+            obligation="consec",
+            status="timeout",
+            note="TLC exceeded timeout",
+        ),
+        property=ObligationResult(
+            obligation="property",
+            status="failed",
+            counterexample=Counterexample(
+                obligation="property",
+                violated_predicate="Property",
+                trace=[
+                    TraceState(
+                        index=1,
+                        action="Withdraw",
+                        assignments={"balance": "-1", "pc": '"Done"'},
+                    )
+                ],
+                raw_excerpt="Error: Invariant Property is violated.\nState 1: <Withdraw>",
+            ),
+        ),
+    )
+
+    agent.repair(
+        task=TaskRequest(prompt="bank transfer"),
+        history=history,
+        bundle=bundle,
+        last_proposal=SynthesisProposal.model_validate(proposal_input),
+        previous_tool_use_id="tu_prev",
+    )
+
+    feedback = fake.calls[0]["messages"][-1]["content"][0]["content"]
+    assert "init: ERROR" in feedback
+    assert "identifier BalanceDomain is undefined" in feedback
+    assert "consec: TIMEOUT" in feedback
+    assert "TLC exceeded timeout" in feedback
+    assert "property: FAILED" in feedback
+    assert "violated_predicate: Property" in feedback
+    assert "State 1 <Withdraw>: balance=-1, pc=\"Done\"" in feedback
+    assert "raw TLC excerpt:" in feedback
+    assert "Error: Invariant Property is violated." in feedback
 
 
 def test_extract_tool_use_raises_when_block_absent():

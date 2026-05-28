@@ -13,7 +13,7 @@ from pathlib import Path
 from src.config import Settings
 from src.formal.counterexample_parser import parse_tlc_output
 from src.formal.pcal_translator import translate_pluscal
-from src.formal.tla_runner import run_tlc
+from src.formal.tla_runner import TLCError, run_tlc
 from src.formal.tlc_config import (
     write_consec_cfg,
     write_consec_module,
@@ -68,9 +68,14 @@ class Verifier:
         consec_tla = work_dir / f"Consec_{module}.tla"
         prop_tla = work_dir / f"Prop_{module}.tla"
 
-        init_result = self._check_one(main_tla, init_cfg, jar, work_dir, timeout, "init")
-        consec_result = self._check_one(consec_tla, consec_cfg, jar, work_dir, timeout, "consec")
-        property_result = self._check_one(prop_tla, prop_cfg, jar, work_dir, timeout, "property")
+        try:
+            init_result = self._check_one(main_tla, init_cfg, jar, work_dir, timeout, "init")
+            consec_result = self._check_one(consec_tla, consec_cfg, jar, work_dir, timeout, "consec")
+            property_result = self._check_one(prop_tla, prop_cfg, jar, work_dir, timeout, "property")
+        except TLCError as exc:
+            err = str(exc)
+            LOGGER.warning("TLC invocation failed: %s", err)
+            return _all_error(err, kind="tlc")
 
         return ProofBundle(
             init=init_result,

@@ -1,109 +1,65 @@
-Steps to complete this project with an LLM
+Steps to run and evaluate this project
 
 1. Install Python dependencies.
 
+   python -m venv .venv
+   source .venv/bin/activate
    pip install -r requirements.txt
 
-2. Choose an LLM provider.
+2. Run deterministic offline tests.
 
-   Option A: Ollama, fully local
+   pytest tests/ -m "not integration"
 
-   Install Ollama, then pull and serve a model:
+   These tests do not require an Anthropic API key or TLA+ tools. They mock the
+   LLM boundary and use local TLC-output fixtures.
 
-   ollama pull llama3.1
-   ollama serve
+3. Install TLA+ tools for real TLC checks.
 
-   In a second terminal, set:
+   Download tla2tools.jar from the official TLA+ tools release and set:
 
-   export LLM_PROVIDER=ollama
-   export LLM_MODEL=llama3:latest
-   export LLM_BASE_URL=http://localhost:11434
+   export TLA2TOOLS_JAR=/absolute/path/to/tla2tools.jar
 
-   Option B: OpenAI or another OpenAI-compatible API
+   The older TLA_TLC_JAR environment variable is also accepted.
 
-   export LLM_PROVIDER=openai
-   export LLM_MODEL=gpt-4o
-   export LLM_API_KEY=your_api_key_here
+4. Configure Anthropic for live end-to-end runs.
 
-   For a custom OpenAI-compatible endpoint, also set:
+   export ANTHROPIC_API_KEY=sk-ant-...
 
-   export LLM_BASE_URL=https://your-provider.example/v1
+   The default model is configured in src/config.py and can be overridden with
+   ANTHROPIC_MODEL or the CLI --model option.
 
-   Option C: Anthropic
+5. Run a finite benchmark prompt.
 
-   export LLM_PROVIDER=anthropic
-   export LLM_MODEL=claude-3-5-sonnet-latest
-   export LLM_API_KEY=your_api_key_here
+   python -m src.main "$(cat examples/bounded_counter.txt)" -o generated/bounded_counter
 
-3. Run the pipeline on prompts beyond the built-in examples.
+   Other small prompts live in examples/. Live outcomes are model-dependent and
+   may incur API costs, so they should not be treated as deterministic
+   benchmark pass rates.
 
-   python -m src.main "Implement a two-phase commit coordinator with abort on timeout" --output generated --verbose
+6. Inspect generated artifacts.
 
-   Or pass provider options directly:
+   Verified TLA+ modules are written under generated/<case>/tla/.
+   Refined Python modules are written under generated/<case>/python/.
+   Per-iteration TLC scratch files and reports are written under
+   generated/<case>/work/<slug>_iter<N>/.
 
-   python -m src.main "Implement a bounded retry scheduler with no negative retry count" \
-     --llm-provider ollama \
-     --llm-model llama3.1 \
-     --output generated \
-     --verbose
+   Useful per-iteration reports include proposal.json, proof_bundle.json,
+   iteration_summary.md, and, when repair was requested, repair.json and
+   repair_summary.md.
 
-4. Inspect generated artifacts.
+7. Interpret the proof scope correctly.
 
-   TLA+/PlusCal specs are written to:
+   The project is finite-domain inductive checking with TLC. Invariants must
+   enumerate finite memberships for state variables so TLC can use Inv as an
+   initial predicate for consecution and property checks. The system does not
+   claim unbounded TLAPS proofs or deterministic live LLM success rates.
 
-   generated/tla/
+8. Read the final report.
 
-   Python modules are written to:
+   The final course report is in final_report/main.tex. If LaTeX is installed,
+   build it from final_report/ with:
 
-   generated/python/
-
-   Check that the generated TLA+ file contains:
-
-   - a MODULE header
-   - a PlusCal --algorithm block
-   - an Invariant definition
-   - a Property definition
-   - proof-obligation markers for Initiation, Consecution, and Property Implication
-
-5. Install TLC for real verification instead of mock verification.
-
-   Install Java 11 or newer.
-   Download tla2tools.jar from the official TLA+ tools release.
-   Set:
-
-   export TLA_TLC_JAR=/absolute/path/to/tla2tools.jar
-
-   Then rerun the pipeline with verification enabled:
-
-   python -m src.main "Implement a bounded counter from 0 to 10" --verify --output generated --verbose
-
-6. Iterate on prompts and generated artifacts.
-
-   If TLC or the mock verifier fails, the pipeline will attempt refinement automatically.
-   For stronger results, make prompts specific:
-
-   - name the state variables
-   - state the safety property
-   - give finite bounds for model checking
-   - describe invalid operations
-   - describe what runtime assertions should enforce
-
-   Example:
-
-   python -m src.main "Implement a bounded queue with capacity 3. Enqueue must not exceed capacity. Dequeue returns the oldest item. The invariant is length is always between 0 and 3 and order is FIFO." --output generated --verbose
-
-7. Run tests before submitting.
-
-   pytest
-
-8. Prepare the final project explanation.
-
-   In the writeup or demo, explain:
-
-   - the natural language prompt enters PlannerAgent
-   - the LLM creates a structured TaskSpecification
-   - SpecificationGenerator asks the LLM for PlusCal/TLA+ plus an invariant
-   - VerifierAgent runs TLC when TLA_TLC_JAR is set, otherwise mock checks run
-   - RefinerAgent feeds verifier feedback back to the LLM
-   - CodeGeneratorAgent creates Python with runtime assertions from the invariant
-
+   pdflatex -interaction=nonstopmode -halt-on-error main.tex
+   bibtex main
+   pdflatex -interaction=nonstopmode -halt-on-error main.tex
+   pdflatex -interaction=nonstopmode -halt-on-error main.tex

@@ -15,6 +15,10 @@ obligations pass does a second agent refine the verified PlusCal into an
 executable Python module whose runtime assertions are derived from the
 verified invariant.
 
+Scope note: this is a course prototype for finite-domain inductive checking
+with TLC. It is meant to show the verification loop and generated artifacts
+clearly, not to prove unbounded programs or report live LLM success rates.
+
 ## The three proof obligations
 
 For an algorithm with initial-state predicate `Init`, transition relation
@@ -23,7 +27,7 @@ For an algorithm with initial-state predicate `Init`, transition relation
 
 | Obligation       | Formula                       | Encoding                                    |
 | ---------------- | ----------------------------- | ------------------------------------------- |
-| **Initiation**   | `Init ⇒ Inv`                  | `SPECIFICATION Spec / INVARIANT Inv` on the PlusCal module |
+| **Initiation / reachable Inv check** | `Init ⇒ Inv` over the generated `Spec` run | `SPECIFICATION Spec / INVARIANT Inv` on the PlusCal module |
 | **Consecution**  | `Inv ∧ Next ⇒ Inv'`           | Aux module: `IInit == Inv`, `ISpec == IInit /\ [][Next]_vars`; check `INVARIANT Inv` |
 | **Property impl.** | `Inv ⇒ Property`            | Aux module: `PInit == Inv`, `PSpec == PInit /\ [][UNCHANGED vars]_vars`; check `INVARIANT Property` |
 
@@ -33,6 +37,12 @@ through Claude's `tool_result` channel, and the agent emits a revised
 `(PlusCal, Inv, Property)` triple via the `repair_after_counterexample`
 tool. The loop terminates when all three obligations pass or the iteration
 cap is reached.
+
+Note: the `init.cfg` encoding runs TLC on the module's full `Spec` with
+`INVARIANT Inv`. In practice this checks that reachable states from `Init`
+preserve `Inv`; a later reachable transition violation can therefore appear in
+that run. The separate consecution module is the explicit inductive one-step
+check from arbitrary `Inv` states.
 
 ## Pipeline
 
@@ -71,6 +81,8 @@ cap is reached.
 Python 3.11+ is required.
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -97,7 +109,7 @@ Options:
 ```
 --output, -o          Output directory (default: ./generated)
 --max-iterations, -n  Max repair iterations (default: 5; range 1-20)
---model, -m           Override the Claude model id (default: claude-opus-4-7)
+--model, -m           Override the Claude model id (default: claude-opus-4-1-20250805)
 --verbose, -v         Verbose logging
 ```
 
@@ -113,7 +125,39 @@ Outputs:
   `assert` statements derived from the conjuncts of `Inv`.
 - `generated/work/<slug>_iter<N>/…` — per-iteration scratch dir containing
   the auxiliary `Consec_<Module>.tla`, `Prop_<Module>.tla`, three `.cfg`
-  files, and TLC's working artifacts. Useful for debugging a stuck run.
+  files, TLC's working artifacts, and lightweight reports:
+  `proposal.json`, `proof_bundle.json`, `iteration_summary.md`, plus
+  `repair.json` / `repair_summary.md` when a repair was requested.
+
+The final terminal panel reports the status of the three checks:
+
+- `Init: passed` means TLC found no reachable state from `Spec` that violates
+  `Inv` during the initiation/reachable-invariant run.
+- `Consec: passed` means every enumerated `Inv` state is preserved by one
+  `Next` step.
+- `Property: passed` means every enumerated `Inv` state satisfies `Property`.
+
+Any `failed`, `timeout`, or `error` status means the run is not a proof. Inspect
+the matching `generated/work/<slug>_iter<N>/` directory and TLC stdout captured
+in the returned `ProofBundle` when debugging from Python.
+
+## Benchmark prompts
+
+The `examples/` directory contains small finite-state prompts intended for
+manual runs and course evaluation. They are deliberately bounded so the agent
+can emit finite `CONSTANTS` and TLC can enumerate the state space:
+
+```bash
+python -m src.main "$(cat examples/bounded_counter.txt)" -o generated/bounded_counter
+python -m src.main "$(cat examples/bank_transfer.txt)" -o generated/bank_transfer
+python -m src.main "$(cat examples/resource_semaphore.txt)" -o generated/resource_semaphore
+python -m src.main "$(cat examples/ring_buffer.txt)" -o generated/ring_buffer
+```
+
+These commands require `ANTHROPIC_API_KEY` and `TLA2TOOLS_JAR`. They may incur
+API costs and their live outcomes are model-dependent, so the repository does
+not claim fixed pass rates for them. For deterministic grading, use the offline
+test suite below.
 
 ## Project layout
 
@@ -157,6 +201,12 @@ TLC trace fixtures, so it runs without an API key or `tla2tools.jar`:
 pytest tests/ -m "not integration"
 ```
 
+Expected offline behavior: all non-integration tests should pass on a normal
+Python 3.11+ environment after installing `requirements.txt`. These tests cover
+configuration errors, tool-call parsing, proposal/repair/refine flow with a
+mocked client, TLC config generation, and TLC-output parsing. They do not invoke
+Claude, `pcal.trans`, or live TLC.
+
 Integration tests are gated by environment variables:
 
 ```bash
@@ -168,11 +218,18 @@ pytest tests/test_tlc_runner.py -m integration
 pytest tests/test_e2e.py -m integration
 ```
 
+The TLC integration checks local fixture modules only. The live end-to-end test
+is intentionally gated and should be treated as an optional smoke test rather
+than a reproducible benchmark result.
+
+See `docs/evaluator_guide.md` for a compact walkthrough of what to inspect in
+generated outputs.
+
 ## Tool stack
 
-- **LLM backbone:** Claude Opus 4.7 (`claude-opus-4-7`) via the Anthropic
-  Python SDK with function calling, with Claude Opus 4.6
-  (`claude-opus-4-6`) as the automatic fallback on a `529 OverloadedError`
+- **LLM backbone:** Claude Opus 4.1 (`claude-opus-4-1-20250805`) via the Anthropic
+  Python SDK with function calling, with Claude Opus 4
+  (`claude-opus-4-20250514`) as the automatic fallback on a `529 OverloadedError`
   (override either via `ANTHROPIC_MODEL` / `ANTHROPIC_FALLBACK_MODEL`).
   Three tools: `propose_pluscal_with_invariant`,
   `repair_after_counterexample`, `emit_python_module`. The system prompt
@@ -189,6 +246,10 @@ pytest tests/test_e2e.py -m integration
   to supply small finite `CONSTANTS` (e.g. `MaxValue ∈ {3, 5, 10}`). True
   unbounded inductiveness would need TLAPS, which is out of scope for this
   prototype.
+- **TLC proves the emitted finite TLA+ model, not the natural language
+  prompt.** The LLM may formalize the task incorrectly. Evaluators should read
+  the generated `.tla`, `Inv`, `Property`, and Python assertions before treating
+  a run as meaningful.
 - **`Inv` must be expressible as an initial-state predicate.** Each
   variable must appear under explicit set membership (`counter \in
   0..MaxValue`, not just `counter >= 0 /\ counter <= MaxValue`). The

@@ -9,7 +9,7 @@ from typing import Any, Optional
 from src.agents.refine_agent import RefineAgent, RefinedModule
 from src.agents.synth_agent import SynthesisAgent
 from src.agents.verifier import Verifier
-from src.config import Settings, get_settings, require_runtime_settings
+from src.config import ConfigError, Settings
 from src.llm.anthropic_client import AnthropicClient
 from src.models.proof import ProofBundle
 from src.models.synthesis import SynthesisProposal
@@ -33,7 +33,11 @@ def run_pipeline(
     are constructed from `settings`.
     """
 
-    require_runtime_settings(settings)
+    _require_pipeline_settings(
+        settings,
+        need_client=client is None,
+        need_verifier=verifier is None,
+    )
     ensure_directory(settings.tla_dir)
     ensure_directory(settings.python_dir)
     ensure_directory(settings.work_dir)
@@ -46,6 +50,7 @@ def run_pipeline(
     verifier = verifier or Verifier(settings)
     synth = SynthesisAgent(client)
     refine = RefineAgent(client)
+    artifact_paths: list[Path] = []
 
     LOGGER.info("Synthesising initial proposal...")
     proposal, history = synth.propose(task)
@@ -60,6 +65,14 @@ def run_pipeline(
         )
         work_dir = settings.work_dir / f"{proposal.slug}_iter{i}"
         bundle = verifier.check(proposal, work_dir)
+        artifact_paths.extend(
+            _write_iteration_artifacts(
+                work_dir=work_dir,
+                iteration=iterations,
+                proposal=proposal,
+                bundle=bundle,
+            )
+        )
         if bundle.all_passed:
             LOGGER.info("All three obligations passed at iteration %d.", iterations)
             break
@@ -80,6 +93,13 @@ def run_pipeline(
             last_proposal=proposal,
             previous_tool_use_id=last_tool_use_id,
         )
+        artifact_paths.extend(
+            _write_repair_artifacts(
+                work_dir=work_dir,
+                iteration=iterations,
+                repair=_repair,
+            )
+        )
         last_tool_use_id = _last_tool_use_id(history)
 
     assert bundle is not None
@@ -91,6 +111,7 @@ def run_pipeline(
             iterations=iterations,
             proposal=proposal,
             bundle=bundle,
+            artifact_paths=artifact_paths,
         )
 
     LOGGER.info("Refining verified PlusCal into Python...")
@@ -112,6 +133,7 @@ def run_pipeline(
         bundle=bundle,
         tla_path=tla_path,
         python_path=python_path,
+        artifact_paths=artifact_paths,
     )
 
 
@@ -123,6 +145,104 @@ def _last_tool_use_id(history: list[dict[str, Any]]) -> str:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 return block["id"]
     raise RuntimeError("No tool_use block found in conversation history.")
+
+
+def _require_pipeline_settings(
+    settings: Settings,
+    *,
+    need_client: bool,
+    need_verifier: bool,
+) -> None:
+    """Fail fast only for production components this run will construct."""
+
+    missing: list[str] = []
+    if need_client and not settings.anthropic_api_key:
+        missing.append("ANTHROPIC_API_KEY (set in your environment or a .env file)")
+    if need_verifier:
+        if not settings.tla2tools_jar:
+            missing.append(
+                "TLA2TOOLS_JAR (path to tla2tools.jar; supplies pcal.trans and tlc2.TLC)"
+            )
+        elif not Path(settings.tla2tools_jar).exists():
+            missing.append(
+                f"TLA2TOOLS_JAR points to a missing file: {settings.tla2tools_jar}"
+            )
+    if missing:
+        joined = "\n  - ".join(missing)
+        raise ConfigError(
+            "Cannot run the proof-driven pipeline. Missing required settings:\n  - "
+            + joined
+        )
+
+
+def _write_iteration_artifacts(
+    *,
+    work_dir: Path,
+    iteration: int,
+    proposal: SynthesisProposal,
+    bundle: ProofBundle,
+) -> list[Path]:
+    """Persist small, stable reporting files for one verification attempt."""
+
+    paths = [
+        write_text(work_dir / "proposal.json", proposal.model_dump_json(indent=2)),
+        write_text(work_dir / "proof_bundle.json", bundle.model_dump_json(indent=2)),
+        write_text(
+            work_dir / "iteration_summary.md",
+            _format_iteration_summary(iteration, proposal, bundle),
+        ),
+    ]
+    return paths
+
+
+def _write_repair_artifacts(
+    *,
+    work_dir: Path,
+    iteration: int,
+    repair: Any,
+) -> list[Path]:
+    """Persist the LLM repair diagnosis alongside the failed iteration."""
+
+    content = (
+        repair.model_dump_json(indent=2)
+        if hasattr(repair, "model_dump_json")
+        else str(repair)
+    )
+    summary = (
+        f"# Repair requested after iteration {iteration}\n\n"
+        f"- Targeted obligation: {getattr(repair, 'targeted_obligation', '<unknown>')}\n"
+        f"- Reasoning: {getattr(repair, 'reasoning', '<none>')}\n"
+    )
+    return [
+        write_text(work_dir / "repair.json", content),
+        write_text(work_dir / "repair_summary.md", summary),
+    ]
+
+
+def _format_iteration_summary(
+    iteration: int,
+    proposal: SynthesisProposal,
+    bundle: ProofBundle,
+) -> str:
+    lines = [
+        f"# Verification iteration {iteration}",
+        "",
+        f"- Module: {proposal.module_name}",
+        f"- Slug: {proposal.slug}",
+        f"- Overall: {'passed' if bundle.all_passed else 'failed'}",
+        "",
+        "## Obligations",
+    ]
+    for result in (bundle.init, bundle.consec, bundle.property):
+        lines.append(f"- {result.obligation}: {result.status}")
+        if result.note:
+            lines.append(f"  - note: {result.note}")
+        if result.counterexample is not None:
+            ce = result.counterexample
+            lines.append(f"  - violated_predicate: {ce.violated_predicate}")
+            lines.append(f"  - trace_states: {len(ce.trace)}")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> None:

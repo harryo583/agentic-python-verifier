@@ -40,5 +40,6 @@ class PipelineResult(BaseModel):
     bundle: ProofBundle
     tla_path: Optional[Path] = None
     python_path: Optional[Path] = None
+    artifact_paths: list[Path] = Field(default_factory=list)
 
     model_config = {"arbitrary_types_allowed": True}

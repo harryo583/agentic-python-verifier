@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,8 +55,8 @@ def _settings(tmp_path: Path) -> Settings:
         work_dir=tmp_path / "gen" / "work",
         anthropic_api_key="fake-key",
         tla2tools_jar=str(tmp_path / "fake.jar"),
-        model="claude-opus-4-7",
-        fallback_model="claude-opus-4-6",
+        model="claude-opus-4-1-20250805",
+        fallback_model="claude-opus-4-20250514",
         max_iterations=3,
         tlc_timeout_s=30,
         log_level="INFO",
@@ -115,10 +116,28 @@ _REPAIR_INPUT = {
 }
 
 _REFINE_INPUT = {
-    "python_module": "def increment(c):\n    assert c >= 0\n    return c + 1\n",
+    "python_module": (
+        "def increment(c):\n"
+        "    assert c >= 0\n"
+        "    nxt = c + 1\n"
+        "    assert nxt <= 10\n"
+        "    return nxt\n"
+    ),
     "entry_function": "increment",
-    "assertion_map": [{"tla_clause": "counter >= 0", "python_check": "c >= 0"}],
+    "assertion_map": [
+        {"tla_clause": "counter >= 0", "python_check": "c >= 0"},
+        {"tla_clause": "counter <= 10", "python_check": "nxt <= 10"},
+    ],
 }
+
+
+def _load_generated_module(path: Path):
+    spec = importlib.util.spec_from_file_location("generated_under_test", path)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_pipeline_succeeds_on_first_iteration(tmp_path: Path):
@@ -128,9 +147,8 @@ def test_pipeline_succeeds_on_first_iteration(tmp_path: Path):
             FakeMessage(content=[FakeBlock(type="tool_use", id="tu_3", name="emit_python_module", input=_REFINE_INPUT)]),
         ]
     )
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
     settings = _settings(tmp_path)
-    Path(settings.tla2tools_jar).write_text("")  # touch the fake jar so require_runtime_settings passes
     verifier = ScriptedVerifier(settings, [_passing_bundle()])
 
     result = run_pipeline(
@@ -145,6 +163,21 @@ def test_pipeline_succeeds_on_first_iteration(tmp_path: Path):
     assert result.tla_path is not None and result.tla_path.exists()
     assert result.python_path is not None and result.python_path.exists()
     assert "def increment" in result.python_path.read_text()
+    artifact_names = {p.name for p in result.artifact_paths}
+    assert artifact_names == {
+        "proposal.json",
+        "proof_bundle.json",
+        "iteration_summary.md",
+    }
+
+    generated = _load_generated_module(result.python_path)
+    assert generated.increment(2) == 3
+    try:
+        generated.increment(10)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("generated module did not enforce the upper-bound invariant")
 
 
 def test_pipeline_repairs_then_succeeds(tmp_path: Path):
@@ -155,7 +188,7 @@ def test_pipeline_repairs_then_succeeds(tmp_path: Path):
             FakeMessage(content=[FakeBlock(type="tool_use", id="tu_3", name="emit_python_module", input=_REFINE_INPUT)]),
         ]
     )
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
     settings = _settings(tmp_path)
     Path(settings.tla2tools_jar).write_text("")
     verifier = ScriptedVerifier(settings, [_failing_bundle(), _passing_bundle()])
@@ -171,6 +204,44 @@ def test_pipeline_repairs_then_succeeds(tmp_path: Path):
     assert result.iterations == 2
     assert len(verifier.calls) == 2
     assert len(fake.calls) == 3
+    assert all(path.exists() for path in result.artifact_paths)
+
+    first_iter = settings.work_dir / "bounded_counter_iter0" / "BoundedCounter.tla"
+    second_iter = settings.work_dir / "bounded_counter_iter1" / "BoundedCounter.tla"
+    assert first_iter.exists()
+    assert second_iter.exists()
+    assert first_iter.read_text(encoding="utf-8") == _PROPOSAL_INPUT["pluscal"]
+    assert second_iter.read_text(encoding="utf-8") == _REPAIR_INPUT["pluscal"]
+    first_iter_dir = settings.work_dir / "bounded_counter_iter0"
+    assert (first_iter_dir / "proof_bundle.json").exists()
+    assert (first_iter_dir / "repair.json").exists()
+    assert "consec" in (first_iter_dir / "repair_summary.md").read_text(encoding="utf-8")
+
+    artifact_names_by_iter = {
+        path.parent.name: set()
+        for path in result.artifact_paths
+    }
+    for path in result.artifact_paths:
+        artifact_names_by_iter[path.parent.name].add(path.name)
+        assert path.exists()
+    assert artifact_names_by_iter["bounded_counter_iter0"] == {
+        "proposal.json",
+        "proof_bundle.json",
+        "iteration_summary.md",
+        "repair.json",
+        "repair_summary.md",
+    }
+    assert artifact_names_by_iter["bounded_counter_iter1"] == {
+        "proposal.json",
+        "proof_bundle.json",
+        "iteration_summary.md",
+    }
+    assert "consec: failed" in (
+        settings.work_dir / "bounded_counter_iter0" / "iteration_summary.md"
+    ).read_text(encoding="utf-8")
+    assert "Targeted obligation: consec" in (
+        settings.work_dir / "bounded_counter_iter0" / "repair_summary.md"
+    ).read_text(encoding="utf-8")
 
 
 def test_pipeline_exhausts_iterations_and_returns_unverified(tmp_path: Path):
@@ -180,7 +251,7 @@ def test_pipeline_exhausts_iterations_and_returns_unverified(tmp_path: Path):
             FakeMessage(content=[FakeBlock(type="tool_use", id="tu_2", name="repair_after_counterexample", input=_REPAIR_INPUT)]),
         ]
     )
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
     settings = _settings(tmp_path)
     Path(settings.tla2tools_jar).write_text("")
     verifier = ScriptedVerifier(settings, [_failing_bundle(), _failing_bundle()])
@@ -196,3 +267,5 @@ def test_pipeline_exhausts_iterations_and_returns_unverified(tmp_path: Path):
     assert result.iterations == 2
     assert result.tla_path is None
     assert result.python_path is None
+    assert (settings.work_dir / "bounded_counter_iter1" / "iteration_summary.md").exists()
+    assert len(result.artifact_paths) == 8

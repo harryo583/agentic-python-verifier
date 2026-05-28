@@ -37,7 +37,7 @@ class FakeAnthropic:
 
 def test_no_fallback_when_disabled_propagates_error():
     fake = FakeAnthropic(overload_first=1)
-    client = AnthropicClient(api_key="x", model="claude-opus-4-7", client=fake)
+    client = AnthropicClient(api_key="x", model="claude-opus-4-1-20250805", client=fake)
 
     with pytest.raises(OverloadedError):
         client.message(system="s", messages=[])
@@ -49,26 +49,26 @@ def test_fallback_retries_on_overload_with_secondary_model():
     fake = FakeAnthropic(overload_first=1)
     client = AnthropicClient(
         api_key="x",
-        model="claude-opus-4-7",
+        model="claude-opus-4-1-20250805",
         client=fake,
-        fallback_model="claude-opus-4-6",
+        fallback_model="claude-opus-4-20250514",
     )
 
     response = client.message(system="s", messages=[])
 
     assert len(fake.calls) == 2
-    assert fake.calls[0]["model"] == "claude-opus-4-7"
-    assert fake.calls[1]["model"] == "claude-opus-4-6"
-    assert response.model_used == "claude-opus-4-6"
+    assert fake.calls[0]["model"] == "claude-opus-4-1-20250805"
+    assert fake.calls[1]["model"] == "claude-opus-4-20250514"
+    assert response.model_used == "claude-opus-4-20250514"
 
 
 def test_fallback_does_not_retry_a_second_overload():
     fake = FakeAnthropic(overload_first=2)
     client = AnthropicClient(
         api_key="x",
-        model="claude-opus-4-7",
+        model="claude-opus-4-1-20250805",
         client=fake,
-        fallback_model="claude-opus-4-6",
+        fallback_model="claude-opus-4-20250514",
     )
 
     with pytest.raises(OverloadedError):
@@ -93,9 +93,9 @@ def test_non_overload_errors_are_not_caught():
     fake = FailingFake()
     client = AnthropicClient(
         api_key="x",
-        model="claude-opus-4-7",
+        model="claude-opus-4-1-20250805",
         client=fake,
-        fallback_model="claude-opus-4-6",
+        fallback_model="claude-opus-4-20250514",
     )
 
     with pytest.raises(TransientNetworkError):
