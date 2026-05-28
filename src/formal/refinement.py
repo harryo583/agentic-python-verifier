@@ -24,6 +24,7 @@ over in the WITH clause.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,76 @@ from src.models.bundle import ModuleBundle, ModuleSource
 
 class RefinementError(RuntimeError):
     """Raised when a ModuleBundle cannot produce a refinement aux module."""
+
+
+# Matches `CONSTANT X` / `CONSTANTS X, Y, Z` declarations in TLA+ source.
+# The id-list may continue across lines, but TLA+ convention is single-line;
+# we capture only the first line and split on commas. Anything past a `\*`
+# comment marker on the same line is excluded.
+_ABS_CONSTANTS_LINE_RE = re.compile(
+    r"^\s*CONSTANT[S]?\s+([^\n\\]+?)(?:\s*\\\*.*)?$",
+    re.MULTILINE,
+)
+_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _extract_abs_constants(tla_source: str) -> list[str]:
+    """Return the CONSTANTS identifiers declared in an abs module's TLA source.
+
+    Empty list if the module has no CONSTANTS declaration.
+    """
+
+    names: list[str] = []
+    for match in _ABS_CONSTANTS_LINE_RE.finditer(tla_source):
+        for raw in match.group(1).split(","):
+            ident = raw.strip()
+            if ident and _IDENT_RE.fullmatch(ident):
+                names.append(ident)
+    return names
+
+
+def _parse_parent_instance_with(
+    parent_source: str, impl_module_name: str
+) -> dict[str, str]:
+    """Return the WITH substitution map for `INSTANCE <impl_module_name> WITH ...`.
+
+    The parent typically declares `<Alias> == INSTANCE <Name>_Impl WITH
+    <var1> <- <expr1>, <const1> <- <expr2>, ...`. This returns
+    `{<var1>: <expr1>, <const1>: <expr2>, ...}`.
+
+    The refinement aux module needs each abs CONSTANT to resolve to the same
+    parent-scope expression the parent already bound for the matching impl
+    (since abs and impl share CONSTANT names by convention). When the abs
+    declares `MaxLen` but the parent uses `MaxItem` and binds `MaxLen <-
+    MaxItem`, the refinement WITH must also bind `MaxLen <- MaxItem`, not
+    `MaxLen <- MaxLen` (which would dangle).
+
+    Returns `{}` when no matching INSTANCE statement is found or the
+    statement has no WITH clause. Only handles single-line INSTANCE
+    statements — the synth_agent emits one per line in practice.
+    """
+
+    pattern = re.compile(
+        r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*==\s*INSTANCE\s+"
+        + re.escape(impl_module_name)
+        + r"\s+WITH\s+([^\n]+)$",
+        re.MULTILINE,
+    )
+    match = pattern.search(parent_source)
+    if not match:
+        return {}
+
+    out: dict[str, str] = {}
+    # Split on commas. The synth_agent doesn't emit substitution RHS
+    # expressions containing commas (record/function literals); if that
+    # changes, this naive split needs to become a parenthesis-aware split.
+    for clause in match.group(1).split(","):
+        clause = clause.strip()
+        if "<-" not in clause:
+            continue
+        lhs, rhs = clause.split("<-", 1)
+        out[lhs.strip()] = rhs.strip()
+    return out
 
 
 @dataclass(slots=True)
@@ -85,7 +156,9 @@ def generate_refinement_module(bundle: ModuleBundle) -> RefinementModule:
     ]
 
     for impl in refinable_impls:
-        lines.extend(_render_instance(impl))
+        lines.extend(
+            _render_instance(impl, abs_by_name[impl.name], bundle.parent)
+        )
         lines.append("")
 
     lines.append(_render_refinement_spec(refinable_impls))
@@ -98,24 +171,43 @@ def generate_refinement_module(bundle: ModuleBundle) -> RefinementModule:
     )
 
 
-def _render_instance(impl: ModuleSource) -> list[str]:
-    """One `Abs_<Name> == INSTANCE <Name>_Abs WITH ...` block."""
+def _render_instance(
+    impl: ModuleSource, abs_module: ModuleSource, parent: ModuleSource
+) -> list[str]:
+    """One `Abs_<Name> == INSTANCE <Name>_Abs WITH ...` block.
 
-    abs_module = f"{impl.name}_Abs"
+    Binds the abs module's CONSTANTS first, then the abs variables from
+    `impl.abstraction_map`. Each CONSTANT binding is derived from the
+    parent's `INSTANCE <Name>_Impl WITH ...` clause when present (so that
+    abs and parent agree on the binding even when their CONSTANT names
+    differ — e.g. abs declares `MaxLen` while the parent binds
+    `MaxLen <- MaxItem`). Falls back to identity when the parent doesn't
+    bind that name (i.e. abs and parent use the same name).
+    """
+
+    abs_module_name = f"{impl.name}_Abs"
+    impl_module_name = f"{impl.name}_Impl"
     inst_name = f"Abs_{impl.name}"
     assert impl.abstraction_map, (
         f"_render_instance called with empty abstraction_map for {impl.name!r}; "
         "caller must filter before calling"
     )
 
-    with_clauses = [
+    parent_subs = _parse_parent_instance_with(parent.tla_source, impl_module_name)
+    const_clauses = [
+        f"{c} <- {parent_subs.get(c, c)}"
+        for c in _extract_abs_constants(abs_module.tla_source)
+    ]
+    var_clauses = [
         f"{abs_var} <- {expr}"
         for abs_var, expr in impl.abstraction_map.items()
     ]
-    if len(with_clauses) == 1:
-        return [f"{inst_name} == INSTANCE {abs_module} WITH {with_clauses[0]}"]
+    with_clauses = const_clauses + var_clauses
 
-    head = f"{inst_name} == INSTANCE {abs_module} WITH"
+    if len(with_clauses) == 1:
+        return [f"{inst_name} == INSTANCE {abs_module_name} WITH {with_clauses[0]}"]
+
+    head = f"{inst_name} == INSTANCE {abs_module_name} WITH"
     body = [f"    {clause}," for clause in with_clauses[:-1]]
     body.append(f"    {with_clauses[-1]}")
     return [head] + body

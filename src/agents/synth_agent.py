@@ -265,6 +265,53 @@ def _bundle_from_tool_input(data: dict[str, Any]) -> ModuleBundle:
     )
 
 
+def _classify_error_note(note: str) -> str:
+    """Tag an error-status `note` string with the toolchain stage that produced it."""
+
+    low = note.lower()
+    if "pcal" in low:
+        return "pcal.trans"
+    if "refinement aux module generation" in low:
+        return "refinement-gen"
+    if "sany" in low or "semantic error" in low or "unknown operator" in low:
+        return "SANY"
+    return "TLC"
+
+
+def _toolchain_error_lines(proof: CompositionalProofBundle) -> list[str]:
+    """Return one bullet per distinct toolchain (pcal/SANY/TLC) failure.
+
+    Deduplicates per (module, kind, first-line-of-note): pcal failures
+    propagate the same note across init/consec/property so we don't want
+    three identical bullets.
+    """
+
+    out: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for mod_name, pb in proof.per_module.items():
+        for result in (pb.init, pb.consec, pb.property):
+            if result.status not in {"error", "timeout"}:
+                continue
+            note = result.note or "(no diagnostic)"
+            first_line = note.splitlines()[0] if note else "(no diagnostic)"
+            kind = _classify_error_note(note)
+            key = (mod_name, kind, first_line)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(f"- {mod_name}: {kind}: {first_line}")
+
+    ref = proof.refinement
+    if ref.status in {"error", "timeout"}:
+        note = ref.note or "(no diagnostic)"
+        first_line = note.splitlines()[0] if note else "(no diagnostic)"
+        kind = _classify_error_note(note)
+        out.append(f"- refinement: {kind}: {first_line}")
+
+    return out
+
+
 def _serialise_bundle_failure(
     proof: CompositionalProofBundle,
     bundle: ModuleBundle,
@@ -272,6 +319,12 @@ def _serialise_bundle_failure(
     """Render a failing CompositionalProofBundle as a tool_result string."""
 
     lines = ["The bundle failed model checking. Details:\n"]
+
+    toolchain_lines = _toolchain_error_lines(proof)
+    if toolchain_lines:
+        lines.append("TOOLCHAIN ERRORS (fix these FIRST — TLC cannot run until they're cleared):")
+        lines.extend(toolchain_lines)
+        lines.append("")
 
     any_failure = False
     for mod_name, pb in proof.per_module.items():

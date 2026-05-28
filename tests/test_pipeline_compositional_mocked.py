@@ -502,6 +502,54 @@ def test_compositional_pipeline_threads_trace_result(tmp_path: Path):
     assert work_dir.name == "trace"
 
 
+def test_compositional_pipeline_refinement_syntax_error(tmp_path: Path):
+    """If the refine agent emits unparseable Python, the pipeline must return
+    `refinement_failed` instead of declaring `verified` and writing junk."""
+
+    broken_app_input = {
+        **_APP_INPUT,
+        "python_module": (
+            "from __future__ import annotations\n"
+            "class System:\n"
+            "    def step(self) -> None:\n"
+            "        key = self._rng choice([1, 2, 3])\n"
+        ),
+    }
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_bundle", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", broken_app_input)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+    gate = StubTraceGate({"should_not_be_called": TraceResult(child_name="x", status="conforms")})
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="bounded queue + lock", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=gate,
+    )
+
+    assert result.status == "refinement_failed"
+    # Verified proof is still surfaced so the caller can inspect what passed.
+    assert result.proof is not None and result.proof.all_passed
+    # No package emitted -> no python_dir, and the trace gate must not run.
+    assert result.python_dir is None
+    assert result.tla_dir is None
+    assert result.traces == {}
+    assert result.trace_skipped_reason == "refinement_failed"
+    assert gate.calls == []
+    # Note must point the user at the actual problem.
+    assert "SyntaxError" in result.note
+    assert "app.py" in result.note
+
+
 def test_compositional_pipeline_skip_trace_gate_flag(tmp_path: Path):
     """--skip-trace-gate skips the gate and records the reason."""
 

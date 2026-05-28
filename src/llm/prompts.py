@@ -28,8 +28,11 @@ Output requirements
   inserts that block for you. After translation, the operators `Init`, `Next`,
   and `vars` will exist; your `Inv` and `Property` may reference them.
 * Always end every PlusCal label with a terminating step (e.g. a self-loop or
-  letting the algorithm reach `Done`); the verifier runs TLC with `-deadlock`
-  but a missing terminator can still cause spurious traces.
+  letting the algorithm reach its final label); the verifier runs TLC with
+  `-deadlock` but a missing terminator can still cause spurious traces. Do
+  NOT name your final label `Done` — `Done` is a reserved PlusCal name (the
+  terminal value pcal assigns to `pc` after the last label). Use `Finish`,
+  `End`, `Stopped`, or any algorithm-specific name instead.
 
 Inductive invariant rules
 -------------------------
@@ -160,11 +163,24 @@ The three module roles
       `<Alias>!Inv` from impls)
     - `Property == ...` (target safety property)
 
-  Because the parent uses named INSTANCEs, every impl variable is reachable
-  as `<Alias>!var`. The corresponding `abstraction_map` on each impl must
-  emit expressions in that form: `{"queue": "Q!buffer"}`, not
-  `{"queue": "buffer"}`. The refinement aux module pastes those
-  expressions verbatim into WITH clauses.
+  The corresponding `abstraction_map` on each impl must emit expressions in
+  terms of the **parent's own VARIABLES**, NOT in the `<Alias>!var` form.
+  TLA+'s `M!x` accessor works for defined operators of `M`, not for its
+  variables, so `{"queue": "Q!buffer"}` is rejected by SANY/TLC with
+  "Unknown operator: buffer". Write `{"queue": "buffer"}` instead — the
+  parent's `Q == INSTANCE Queue_Impl WITH buffer <- buffer` has already
+  bound the impl's `buffer` to the parent's `buffer` variable, and the
+  refinement aux module's `EXTENDS <Parent>` puts that parent variable in
+  scope. The refinement generator pastes the abstraction_map values
+  verbatim into the WITH clause of `Abs_<Name> == INSTANCE <Name>_Abs WITH
+  <abs_var> <- <expression>`, so the expression must resolve in the
+  parent's scope.
+
+  Mechanical rule: in the parent, write `<Alias> == INSTANCE <Name>_Impl
+  WITH <impl_var> <- <parent_var>` for every impl variable. Then on each
+  impl, write `abstraction_map = {<abs_var>: "<parent_var>"}` — drop the
+  alias prefix entirely. Use the alias-bang form ONLY if you need to call
+  a defined operator from the impl, never for a variable.
 
   Pure TLA+. **NO PlusCal block in the parent.**
 
@@ -194,6 +210,52 @@ CONSTANTS
 ---------
 Keep every domain tiny (single integer or 3-element set). Each module
 declares only the CONSTANTS it uses; parent declares the union.
+
+PlusCal reserved label names (impls only)
+-----------------------------------------
+Inside an impl's `(* --algorithm ... *)` block, NEVER use the following as
+label names — `pcal.trans` reserves them and will reject the module with
+"Cannot use `<Name>' as a label." (exit 255):
+
+  * `Done`  — pcal auto-assigns this as the terminal value of `pc` after
+              the last user label. It is NOT a label you may write.
+  * `Error` — pcal's own internal error label.
+  * `Lbl_N` for any integer N — pcal generates these for unlabeled steps.
+
+Recommended terminal label names: `Finish`, `End`, `Idle`, `Stopped`,
+`Terminated`, or any algorithm-specific name (e.g. `Committed`, `Halt`).
+
+Note: the string `"Done"` is fine to mention inside `Inv` when enumerating
+pc values (e.g. `pc \\in {"Lbl1","Lbl2","Done"}`) because there `"Done"` is
+the pcal-generated terminal *value of pc*, not a label you authored.
+
+Every impl's PlusCal MUST have at least two labels
+--------------------------------------------------
+The parent module composes impls via `<Alias> == INSTANCE <Name>_Impl WITH
+<impl_var> <- <parent_var>, pc <- pc<Alias>, ...`. That `pc <- pc<Alias>`
+substitution is mandatory (each impl needs its own pc, or the impls would
+share one program counter — unsound). But pcal.trans only emits `pc` as a
+VARIABLE when the algorithm has TWO OR MORE labels. With a single label,
+pcal elides `pc` entirely, and the parent's `pc <- pc<Alias>` substitution
+fails to link: "Identifier 'pc' is not a legal target of a substitution."
+
+Rule: every impl PlusCal block must have at least two labels. If your
+algorithm is conceptually one step (e.g. a single Enqueue action in a
+loop), add a trailing terminal label like `Finish: skip;` after the main
+body — this is enough to force pcal to emit `pc`. Example:
+
+    (* --algorithm BoundedQueue
+    variables buffer = << >>;
+    begin
+      Loop:
+        while TRUE do
+          either await Len(buffer) < Capacity; buffer := Append(buffer, 1);
+          or     await Len(buffer) > 0;        buffer := Tail(buffer);
+          end either;
+        end while;
+      Finish:   \\* second label forces pcal to emit `pc`
+        skip;
+    end algorithm; *)
 
 If all four classes of obligations pass, the bundle is verified and gets
 lowered to Python. If any fails, you'll be called again with structured

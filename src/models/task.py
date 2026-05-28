@@ -61,7 +61,7 @@ class CompositionalPipelineResult(BaseModel):
     run (e.g. the package itself was unverified).
     """
 
-    status: Literal["verified", "unverified", "planner_failed"]
+    status: Literal["verified", "unverified", "planner_failed", "refinement_failed"]
     iterations: int
     plan: Optional[DecompositionPlan] = None
     bundle: Optional[ModuleBundle] = None

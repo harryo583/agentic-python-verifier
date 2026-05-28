@@ -212,3 +212,138 @@ def test_empty_abstraction_map_impl_is_skipped():
     # The refinable impl must appear
     assert "Abs_HasMap == INSTANCE HasMap_Abs WITH v <- impl_v" in src
     assert "RefinementSpec == Abs_HasMap!Spec" in src
+
+
+# ---------------------------------------------------------------------------
+# Scenario 8: abs declares CONSTANTS — they must appear as identity bindings
+# in the INSTANCE WITH, ahead of the variable bindings. Without these, SANY
+# rejects the refinement module with "Unknown operator" cascades.
+# ---------------------------------------------------------------------------
+
+_ABS_WITH_CONSTANTS = """\
+---- MODULE BackingStore_Abs ----
+EXTENDS Naturals
+CONSTANTS Keys, Vals
+VARIABLES storePresent, storeVal
+====
+"""
+
+
+def test_abs_constants_are_substituted_in_instance_with():
+    abs_mod = ModuleSource(
+        name="BackingStore",
+        role="abs",
+        tla_source=_ABS_WITH_CONSTANTS,
+    )
+    impl_mod = _impl(
+        "BackingStore",
+        {"storePresent": "S!storePresent", "storeVal": "S!storeVal"},
+    )
+    bundle = _bundle(
+        "WriteThroughCacheSystem",
+        [impl_mod, abs_mod],
+        slug="write_through_cache",
+    )
+
+    src = generate_refinement_module(bundle).source
+
+    # Multi-clause: head line carries the INSTANCE preamble, clauses follow.
+    assert "Abs_BackingStore == INSTANCE BackingStore_Abs WITH" in src
+
+    # Constants come BEFORE variables in the WITH clause list.
+    lines = src.splitlines()
+    clause_order = [
+        l.strip().rstrip(",") for l in lines
+        if l.strip().startswith(("Keys <-", "Vals <-", "storePresent <-", "storeVal <-"))
+    ]
+    assert clause_order == [
+        "Keys <- Keys",
+        "Vals <- Vals",
+        "storePresent <- S!storePresent",
+        "storeVal <- S!storeVal",
+    ]
+
+    # All non-final clauses get a trailing comma; the final one does not.
+    body_lines = [l for l in lines if l.startswith("    ") and " <- " in l]
+    for l in body_lines[:-1]:
+        assert l.rstrip().endswith(","), f"missing trailing comma: {l!r}"
+    assert not body_lines[-1].rstrip().endswith(",")
+
+
+def test_abs_without_constants_is_unchanged():
+    """Regression: an abs with no CONSTANTS line still produces a
+    variables-only WITH clause (no spurious identity bindings)."""
+
+    abs_mod = ModuleSource(
+        name="Queue",
+        role="abs",
+        # _TRIVIAL_TLA has no CONSTANTS line.
+        tla_source=_TRIVIAL_TLA.format(name="Queue_Abs"),
+    )
+    impl_mod = _impl("Queue", {"q": "impl_q"})
+    bundle = _bundle("System", [impl_mod, abs_mod], slug="system")
+
+    src = generate_refinement_module(bundle).source
+    assert "Abs_Queue == INSTANCE Queue_Abs WITH q <- impl_q" in src
+
+
+# ---------------------------------------------------------------------------
+# Scenario 10: abs and parent disagree on CONSTANT names. The parent's
+# `INSTANCE Consumer_Impl WITH ... MaxLen <- MaxItem` is the source of truth;
+# the refinement module must mirror that binding (NOT identity `MaxLen <-
+# MaxLen`), or SANY rejects with "Unknown operator: MaxLen".
+# ---------------------------------------------------------------------------
+
+_ABS_WITH_MAXLEN = """\
+---- MODULE Consumer_Abs ----
+EXTENDS Naturals
+CONSTANTS MaxVal, MaxLen
+VARIABLES received, sum
+====
+"""
+
+_PARENT_REBINDS_MAXLEN = """\
+---- MODULE ProducerConsumerSystem ----
+EXTENDS Naturals, Sequences
+
+CONSTANTS Capacity, MaxVal, MaxItem
+
+VARIABLES received, sum, pcC
+
+C == INSTANCE Consumer_Impl WITH received <- received, sum <- sum, pc <- pcC, MaxVal <- MaxVal, MaxLen <- MaxItem
+
+vars == <<received, sum, pcC>>
+====
+"""
+
+
+def test_parent_rebinds_abs_constant():
+    """Bug B regression: when the parent's INSTANCE of <Name>_Impl rebinds
+    the abs's CONSTANT (e.g. MaxLen <- MaxItem), the refinement module must
+    use the parent's RHS, not identity."""
+
+    abs_mod = ModuleSource(
+        name="Consumer", role="abs", tla_source=_ABS_WITH_MAXLEN
+    )
+    impl_mod = _impl(
+        "Consumer",
+        {"received": "received", "sum": "sum"},
+    )
+    parent_mod = ModuleSource(
+        name="ProducerConsumerSystem",
+        role="parent",
+        tla_source=_PARENT_REBINDS_MAXLEN,
+    )
+    bundle = ModuleBundle(
+        parent=parent_mod,
+        modules=[abs_mod, impl_mod],
+        slug="producer_consumer_system",
+    )
+
+    src = generate_refinement_module(bundle).source
+
+    # MaxVal binds to itself (parent uses same name).
+    assert "MaxVal <- MaxVal" in src
+    # MaxLen MUST bind to MaxItem (parent's choice), NOT MaxLen <- MaxLen.
+    assert "MaxLen <- MaxItem" in src
+    assert "MaxLen <- MaxLen" not in src

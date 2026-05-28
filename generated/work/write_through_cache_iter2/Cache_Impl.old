@@ -1,0 +1,69 @@
+---- MODULE Cache_Impl ----
+EXTENDS Naturals, Sequences, TLC
+
+CONSTANTS Keys, Vals
+
+Zero == CHOOSE v \in Vals : \A w \in Vals : v <= w
+SomeKey == CHOOSE k \in Keys : TRUE
+
+(* --algorithm Cache
+variables
+  storePresent = [k \in Keys |-> FALSE],
+  storeVal = [k \in Keys |-> Zero],
+  cachePresent = [k \in Keys |-> FALSE],
+  cacheVal = [k \in Keys |-> Zero],
+  lastReadValid = FALSE,
+  lastReadKey = SomeKey,
+  lastReadVal = Zero;
+begin
+  Loop:
+    while TRUE do
+      either
+        with k \in Keys, v \in Vals do
+          cachePresent[k] := TRUE ||
+          cacheVal[k] := v ||
+          storePresent[k] := TRUE ||
+          storeVal[k] := v;
+          lastReadValid := FALSE;
+        end with;
+      or
+        with k \in Keys do
+          if cachePresent[k] then
+            lastReadValid := TRUE ||
+            lastReadKey := k ||
+            lastReadVal := cacheVal[k];
+          elsif storePresent[k] then
+            cachePresent[k] := TRUE ||
+            cacheVal[k] := storeVal[k];
+            lastReadValid := TRUE ||
+            lastReadKey := k ||
+            lastReadVal := storeVal[k];
+          else
+            lastReadValid := FALSE ||
+            lastReadKey := k;
+          end if;
+        end with;
+      or
+        with k \in Keys do
+          cachePresent[k] := FALSE ||
+          cacheVal[k] := Zero;
+        end with;
+      end either;
+    end while;
+end algorithm; *)
+
+InvImpl ==
+  /\ storePresent \in [Keys -> BOOLEAN]
+  /\ storeVal \in [Keys -> Vals]
+  /\ cachePresent \in [Keys -> BOOLEAN]
+  /\ cacheVal \in [Keys -> Vals]
+  /\ lastReadValid \in BOOLEAN
+  /\ lastReadKey \in Keys
+  /\ lastReadVal \in Vals
+  /\ \A k \in Keys : cachePresent[k] => /\ storePresent[k]
+                                        /\ cacheVal[k] = storeVal[k]
+  /\ lastReadValid => /\ storePresent[lastReadKey]
+                      /\ lastReadVal = storeVal[lastReadKey]
+
+PropertyImpl == InvImpl
+====

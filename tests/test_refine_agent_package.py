@@ -9,6 +9,7 @@ import pytest
 
 from src.agents.refine_agent import (
     RefineAgent,
+    RefineSyntaxError,
     package_init_source,
     trace_shim_source,
 )
@@ -280,6 +281,91 @@ def test_to_python_package_raises_when_no_impls():
     agent = RefineAgent(client)
     with pytest.raises(ValueError, match="no impl modules"):
         agent.to_python_package(bundle)
+
+
+def _broken_child_block(class_name: str) -> FakeBlock:
+    """Mimics the real-world `self._rng choice(...)` bug — invalid syntax
+    inside an otherwise plausible class module."""
+
+    return FakeBlock(
+        type="tool_use",
+        id=f"tu_{class_name.lower()}_broken",
+        name="emit_python_module_for_bundle",
+        input={
+            "python_module": (
+                "from __future__ import annotations\n"
+                "import icontract\n"
+                "from ._trace import log_action\n"
+                f"@icontract.invariant(lambda self: True)\n"
+                f"class {class_name}:\n"
+                "    def __init__(self) -> None: self.x = 0\n"
+                "    def step(self) -> None:\n"
+                "        key = self._rng choice([1, 2, 3])\n"
+            ),
+            "class_name": class_name,
+            "entry_function": "step",
+            "assertion_map": [],
+        },
+    )
+
+
+def _broken_app_block() -> FakeBlock:
+    return FakeBlock(
+        type="tool_use",
+        id="tu_app_broken",
+        name="emit_python_app_for_bundle",
+        input={
+            "python_module": (
+                "from __future__ import annotations\n"
+                "def run(steps: int = 50):\n"
+                "    return foo bar\n"
+            ),
+            "class_name": "System",
+            "entry_function": "run",
+        },
+    )
+
+
+def test_to_python_package_raises_when_child_has_syntax_error():
+    """If a child module's emitted source is not valid Python, refinement
+    must fail loudly rather than write a broken package to disk."""
+
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_emit_child_block("Queue", "queue")]),
+            FakeMessage(content=[_broken_child_block("Lock")]),
+        ]
+    )
+    agent = RefineAgent(client)
+
+    with pytest.raises(RefineSyntaxError) as excinfo:
+        agent.to_python_package(_bundle())
+
+    err = excinfo.value
+    assert err.module_name == "Lock"
+    assert err.filename == "lock.py"
+    assert err.lineno == 8
+    assert "self._rng choice" in str(err) or "SyntaxError" in str(err)
+
+
+def test_to_python_package_raises_when_parent_has_syntax_error():
+    """Same check must cover the parent app emission."""
+
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_emit_child_block("Queue", "queue")]),
+            FakeMessage(content=[_emit_child_block("Lock", "lock")]),
+            FakeMessage(content=[_broken_app_block()]),
+        ]
+    )
+    agent = RefineAgent(client)
+
+    with pytest.raises(RefineSyntaxError) as excinfo:
+        agent.to_python_package(_bundle())
+
+    err = excinfo.value
+    assert err.module_name == "System"
+    assert err.filename == "app.py"
 
 
 def test_trace_shim_and_init_sources_are_well_formed():

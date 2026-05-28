@@ -1,0 +1,29 @@
+---- MODULE BackingStore_Impl ----
+EXTENDS Naturals, Sequences, TLC
+
+CONSTANTS Keys, Vals, Missing
+
+(* --algorithm BackingStore
+variables
+  store = [k \in Keys |-> Missing];
+begin
+  Loop:
+    while TRUE do
+      either
+        with k \in Keys, v \in Vals do
+          store[k] := v;
+        end with;
+      or
+        with k \in Keys do
+          skip;
+        end with;
+      end either;
+    end while;
+end algorithm; *)
+
+InvImpl ==
+  /\ DOMAIN store = Keys
+  /\ \A k \in Keys : store[k] \in (Vals \cup {Missing})
+
+PropertyImpl == InvImpl
+====

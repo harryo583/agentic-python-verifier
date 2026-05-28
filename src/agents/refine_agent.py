@@ -9,6 +9,7 @@ emitted package is self-contained.
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -32,6 +33,65 @@ from src.models.bundle import (
     to_snake_case,
 )
 from src.models.synthesis import SynthesisProposal
+
+
+class RefineSyntaxError(Exception):
+    """Raised when an LLM-emitted module is not valid Python.
+
+    Carries enough context for the pipeline to surface a useful message
+    (which module, which file, which line). Never raised for the generated
+    `_trace.py` / `__init__.py` shims — only for LLM output.
+    """
+
+    def __init__(
+        self,
+        *,
+        module_name: str,
+        filename: str,
+        lineno: int | None,
+        offset: int | None,
+        message: str,
+        source_excerpt: str = "",
+    ) -> None:
+        self.module_name = module_name
+        self.filename = filename
+        self.lineno = lineno
+        self.offset = offset
+        self.message = message
+        self.source_excerpt = source_excerpt
+        loc = f"{filename}:{lineno}" if lineno is not None else filename
+        excerpt = f" — {source_excerpt!r}" if source_excerpt else ""
+        super().__init__(
+            f"SyntaxError in emitted module {module_name!r} at {loc}: "
+            f"{message}{excerpt}"
+        )
+
+
+def _validate_python_source(
+    *, module_name: str, filename: str, source: str
+) -> None:
+    """Parse `source` with `ast.parse` and raise RefineSyntaxError on failure.
+
+    `filename` is passed to `ast.parse` so SyntaxError carries the real
+    on-disk file name in its message — the same name we'll write later.
+    """
+
+    try:
+        ast.parse(source, filename=filename)
+    except SyntaxError as exc:
+        excerpt = ""
+        if exc.lineno is not None:
+            lines = source.splitlines()
+            if 1 <= exc.lineno <= len(lines):
+                excerpt = lines[exc.lineno - 1].strip()
+        raise RefineSyntaxError(
+            module_name=module_name,
+            filename=filename,
+            lineno=exc.lineno,
+            offset=exc.offset,
+            message=exc.msg,
+            source_excerpt=excerpt,
+        ) from exc
 
 
 @dataclass(slots=True)
@@ -131,12 +191,18 @@ class RefineAgent:
             response, expected_name=EMIT_PYTHON_MODULE_FOR_BUNDLE_TOOL["name"]
         )
         data = tool_use.input
-        return PythonModuleSource(
+        module = PythonModuleSource(
             name=impl.name,
             source=data.get("python_module", ""),
             class_name=data.get("class_name", ""),
             entry_function=data.get("entry_function", ""),
         )
+        _validate_python_source(
+            module_name=module.name,
+            filename=module.filename,
+            source=module.source,
+        )
+        return module
 
     def _emit_parent_app(
         self, bundle: ModuleBundle, children: list[PythonModuleSource]
@@ -172,12 +238,20 @@ class RefineAgent:
             response, expected_name=EMIT_PYTHON_APP_FOR_BUNDLE_TOOL["name"]
         )
         data = tool_use.input
-        return PythonModuleSource(
+        parent_module = PythonModuleSource(
             name=bundle.parent.name,
             source=data.get("python_module", ""),
             class_name=data.get("class_name", ""),
             entry_function=data.get("entry_function", "run"),
         )
+        # Parent app is written to `app.py` on disk (see _write_package_outputs);
+        # don't use `.filename` (which would snake-case the parent name).
+        _validate_python_source(
+            module_name=parent_module.name,
+            filename="app.py",
+            source=parent_module.source,
+        )
+        return parent_module
 
     def to_python(self, verified: SynthesisProposal) -> RefinedModule:
         conjuncts = _split_invariant_conjuncts(verified.pluscal, verified.invariant_name)
@@ -196,8 +270,14 @@ class RefineAgent:
         )
         tool_use = self.client.extract_tool_use(response, expected_name=REFINE_TOOL["name"])
         data = tool_use.input
+        python_module = data.get("python_module", "")
+        _validate_python_source(
+            module_name=verified.module_name,
+            filename=f"{verified.module_name}.py",
+            source=python_module,
+        )
         return RefinedModule(
-            python_module=data.get("python_module", ""),
+            python_module=python_module,
             entry_function=data.get("entry_function", ""),
             assertion_map=list(data.get("assertion_map", [])),
         )

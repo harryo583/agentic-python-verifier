@@ -1,0 +1,536 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\emergencystretch=3em
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
+
+\lstdefinestyle{code}{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true,
+  xleftmargin=0pt,
+  xrightmargin=0pt
+}
+\lstset{style=code}
+
+\newcommand{\impl}{\Rightarrow}
+\newcommand{\TLA}{TLA\textsuperscript{+}}
+\newcommand{\next}{\textsc{Next}}
+\newcommand{\inv}{\textsc{Inv}}
+\newcommand{\initp}{\textsc{Init}}
+\newcommand{\prop}{\textsc{Property}}
+
+\title{Proof-Driven Multi-Module Python via\\Agentic \TLA{} Co-Synthesis}
+\author{Harry Wang \and Eric Shang Nan Chen}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent
+LLM code generators score well on single-function benchmarks but collapse on
+multi-function compositional tasks: a recent benchmark, DafnyComp~\cite{dafnycomp2025},
+measures a drop from $\approx 58\%$ end-to-end verification on single-function
+problems to $3.69\%$ on compositional ones. We attack that gap from the \TLA{}
+side. We build an agentic pipeline that, from a natural-language requirement,
+(i)~plans a parent-plus-children decomposition, (ii)~co-synthesises an abstract
+spec and an implementation PlusCal module for each child, (iii)~discharges four
+classes of TLC proof obligations --- initiation, consecution, property
+implication, and a cross-module refinement obligation in the
+Hillel-Wayne ADT style~\cite{hillelwayne-tla-adt} --- with structured
+counterexample-driven repair, (iv)~refines the verified bundle into an
+\texttt{icontract}-decorated~\cite{icontract} Python package, and (v)~runs an
+advisory trace-conformance gate that replays one seeded Python execution
+against each child's abstract spec via TLC, using the encoding of
+Cirstea et al.~\cite{cirstea2024}. The pipeline ships with two legacy
+single-module baselines and six compositional benchmarks covering producer/
+consumer queues, write-through caches, ledger audits, two-phase commit, leader
+election, and a reader-writer lock. The offline test suite (24 files, 182
+cases) is green; live end-to-end evaluation against the benchmark suite is in
+progress.
+\end{abstract}
+
+\section{Introduction}
+
+LLM-driven program synthesis has converged on a write-first, verify-second
+loop: emit Python (or Dafny, or Rust), then run a test or a verifier and ask
+the model to repair. This loop works on isolated functions, but the recent
+DafnyComp benchmark~\cite{dafnycomp2025} shows that on compositional, multi-function
+tasks, state-of-the-art LLMs hit only $3.69\%$ verified outputs --- a
+$\approx 92$-point gap versus the single-function case. The bottleneck is not
+syntax: DafnyComp reports $95.67\%$ syntactic correctness even on the
+compositional split. The bottleneck is reasoning about how multiple modules,
+each with its own invariants, fit together into a globally correct system.
+
+\TLA{}~\cite{lamport2002specifying} is an attractive verification target for
+that gap, for three reasons. First, \TLA{}'s refinement composition
+pattern~\cite{hillelwayne-tla-adt} lets us discharge whole-system correctness
+as a conjunction of per-child refinements, each verifiable by the same
+model-checker (TLC~\cite{yu1999tlc}). Second, PlusCal~\cite{lamport2009pluscal}
+gives LLMs an imperative algorithmic surface to write, which then translates
+mechanically to \TLA{}'s state-transition style. Third, TLC's counterexamples
+are structured state sequences that an LLM can read and revise --- the repair
+signal is concrete rather than a binary pass/fail.
+
+This paper describes a pipeline that exploits all three properties. Our
+contributions are:
+
+\begin{itemize}
+  \item An LLM-driven \emph{decomposition} stage that emits a typed
+    \texttt{DecompositionPlan} (parent + up to four child modules, each with
+    an abstract-interface sketch).
+  \item A \emph{bundled co-synthesis} stage that emits, for each child, both
+    an abstract spec module and an implementation module with an explicit
+    abstraction map back to parent variables.
+  \item A \emph{four-obligation verifier} that runs three per-implementation
+    TLC checks (initiation, consecution, property implication) plus a
+    cross-module refinement check, with structured counterexamples piped back
+    to the synthesis agent via Anthropic's \texttt{tool\_result} channel.
+  \item A \emph{Python refinement} stage that emits one
+    \texttt{icontract}-decorated~\cite{icontract} class per implementation
+    module plus a parent application that composes them.
+  \item A \emph{trace-conformance gate} that subprocesses the refined Python
+    package, captures every action and abstract-state observation as JSONL,
+    and replays it against each child's abstract spec via TLC, using the
+    encoding of Cirstea et al.~\cite{cirstea2024}.
+  \item A six-program compositional benchmark suite covering classical
+    concurrency/consistency problems: producer--consumer, write-through cache,
+    ledger audit, two-phase commit, leader election, and a reader-writer lock.
+\end{itemize}
+
+The remainder of the paper is organised as follows. Section~\ref{sec:background}
+reviews the necessary \TLA{} and DafnyComp context. Section~\ref{sec:approach}
+describes the five pipeline stages and the four proof obligations in detail.
+Section~\ref{sec:impl} summarises the implementation. Section~\ref{sec:eval}
+describes the benchmark suite and the offline test status, and reserves a
+results table for the in-progress live sweep. Section~\ref{sec:limits} states
+limitations and the next planned hardening pass. Section~\ref{sec:concl}
+concludes.
+
+\section{Background and Related Work}\label{sec:background}
+
+\paragraph{\TLA{}, PlusCal, TLC.} \TLA{}~\cite{lamport2002specifying}
+specifies systems as state machines using a temporal-logic formula
+$\initp \wedge \Box [\next]_{vars}$. PlusCal~\cite{lamport2009pluscal} is an
+algorithmic notation that compiles to \TLA{} (via \texttt{pcal.trans}). TLC~\cite{yu1999tlc}
+is the explicit-state model checker for \TLA{} that we drive as a subprocess.
+
+\paragraph{Refinement composition.} Our composition pattern follows Hillel
+Wayne's \TLA{}-for-ADTs note~\cite{hillelwayne-tla-adt}: a parent module
+declares variables and defines its own \initp{}/\next{}, and each child is
+brought in as a named \texttt{INSTANCE} of its \emph{abstract} module via
+\texttt{WITH} substitutions that bind the abstract variables to expressions
+over the parent's variables (the abstraction map). The whole-system
+refinement obligation is then $\bigwedge_i \texttt{Abs}_i!\texttt{Spec}$.
+This pattern composes at the \TLA{} layer only --- PlusCal itself does not
+compose --- so our pipeline glues children together after
+\texttt{pcal.trans} has run on each implementation module.
+
+\paragraph{DafnyComp.} DafnyComp~\cite{dafnycomp2025} is the September 2025
+benchmark that motivates this work. It measures LLM-driven verified code
+generation on both single-function and compositional multi-function tasks; the
+collapse from $\approx 58\%$ to $3.69\%$ verification rate on the
+compositional split is the headline gap our pipeline targets, from the \TLA{}
+side rather than the Dafny side.
+
+\paragraph{Trace conformance.} Cirstea et al.~\cite{cirstea2024} (\S 3.2)
+encode a runtime trace as a literal sequence in \TLA{} and let TLC verify
+that the trace is admitted by a spec. We adopt their encoding verbatim for
+our Week-3 trace gate, with the modification that conformance is inferred from
+the depth TLC reports against the trace length, since TLC 2.19 does not
+implement a \texttt{POSTCONDITION} primitive.
+
+\paragraph{Out of scope.} We do not use TLAPS for unbounded inductive proofs;
+all our proofs are by finite model-checking with explicit small constant
+domains. We do not use Nagini or Viper for Python verification; our Python
+guarantee is the conjunction of (i)~static refinement and (ii)~runtime
+\texttt{icontract} assertions plus the trace-conformance gate. We do not
+attempt liveness; all four obligations are safety obligations.
+
+\section{Approach}\label{sec:approach}
+
+The pipeline has five stages (Figure~\ref{fig:pipeline}). All five are
+wired through \texttt{run\_compositional\_pipeline} in
+\texttt{src/main.py}; the legacy single-module path
+(\texttt{run\_pipeline}) is preserved for the two non-compositional
+baselines.
+
+\begin{figure}[t]
+\begin{lstlisting}
+prompt --> PlannerAgent.decompose ----> DecompositionPlan
+        -> SynthesisAgent.propose_bundle -> ModuleBundle
+                                                |
+            +-------------------------------------------+
+            | Verifier.check_bundle:                    |
+            |   per impl: pcal.trans + 3 TLC runs       |
+            |   parent:   Refinement_<P>.tla + TLC      |
+            +---------------+---------------------------+
+                            |
+              all_passed? no -> repair_bundle -> propose
+                          yes
+                            v
+            RefineAgent.to_python_package -> PythonPackage
+                            v
+            TraceGate.check -> {child -> TraceResult}
+                            v
+            CompositionalPipelineResult(status, proof, traces)
+\end{lstlisting}
+\caption{The compositional pipeline. Arrows are typed data flow; the repair
+loop is the only control-flow back-edge.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Decomposition}
+\texttt{PlannerAgent.decompose} (\texttt{src/agents/planner\_agent.py}) calls
+Claude Opus 4.7 with a single function-calling tool,
+\texttt{propose\_decomposition}, that emits a \texttt{DecompositionPlan}
+consisting of a parent name plus 1--4 child modules. Each child carries an
+\texttt{AbstractInterface} (state variables, action names, invariant sketch).
+Decomposition is retried up to two times on Pydantic validation failure;
+exhaustion raises \texttt{DecompositionError} and the pipeline returns
+\texttt{status="planner\_failed"}.
+
+\subsection{Bundled Co-Synthesis}
+\texttt{SynthesisAgent.propose\_bundle} (\texttt{src/agents/synth\_agent.py})
+takes the plan and asks the LLM, via \texttt{propose\_module\_bundle}, for a
+\texttt{ModuleBundle}: a parent \TLA{} module plus, for each child, an
+\emph{abstract} module and an \emph{implementation} module that carries
+both PlusCal source and an \texttt{abstraction\_map} from abstract variables
+to expressions over the parent's variables. The bundle schema (Pydantic
+classes in \texttt{src/models/bundle.py}) enforces role consistency: only
+implementations may carry PlusCal or an abstraction map; only one parent is
+allowed.
+
+\subsection{Four proof obligations}
+Given a bundle the verifier (\texttt{src/agents/verifier.py}) discharges four
+classes of obligation, summarised in Table~\ref{tbl:obligations}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{p{0.13\linewidth} p{0.21\linewidth} p{0.58\linewidth}}
+\toprule
+Obligation & Formula & TLC encoding (file) \\
+\midrule
+Initiation   & $\initp \impl \inv$ &
+  \texttt{SPECIFICATION Spec, INVARIANT Inv} on
+  \texttt{<Name>\_Impl.tla} (\texttt{tlc\_config.py:write\_init\_cfg}) \\
+Consecution  & $\inv \wedge \next \impl \inv'$ &
+  Aux \texttt{Consec\_<Name>\_Impl.tla} with
+  \texttt{IInit == Inv}, \texttt{ISpec == IInit /\textbackslash{}
+  [][Next]\_vars} (\texttt{tlc\_config.py:write\_consec\_module}) \\
+Property impl. & $\inv \impl \prop$ &
+  Aux \texttt{Prop\_<Name>\_Impl.tla} with
+  \texttt{PInit == Inv}, unchanged transition
+  (\texttt{tlc\_config.py:write\_property\_module}) \\
+Refinement   & each \texttt{Impl} refines its \texttt{Abs} &
+  Aux \texttt{Refinement\_<Parent>.tla}; see Listing~\ref{lst:refinement}
+  (\texttt{formal/refinement.py:generate\_refinement\_module}) \\
+\bottomrule
+\end{tabular}
+\caption{The four proof obligations and their TLC encodings.}
+\label{tbl:obligations}
+\end{table}
+
+The first three obligations are per-implementation and reuse the
+single-module encoding from the May 6 progress report. The fourth is the
+compositional obligation: for the bundle as a whole, each child must refine
+its abstract spec under the parent's substitution. We render this as the
+Hillel-Wayne ADT pattern~\cite{hillelwayne-tla-adt}, shown in
+Listing~\ref{lst:refinement}: the auxiliary module \emph{extends} the parent,
+defines one named \texttt{INSTANCE} of the abstract module per child with
+\texttt{WITH} substitutions for both the abstract variables and any abstract
+constants, and asserts the conjunction of all \texttt{Abs}\textsubscript{i}!\texttt{Spec}
+as a temporal property.
+
+\begin{lstlisting}[caption={Generated \texttt{Refinement\_Parent.tla}
+(simplified). The \texttt{const\_clauses} and \texttt{var\_clauses} come from
+the abstract module's \texttt{CONSTANTS} declaration and the
+implementation's \texttt{abstraction\_map}, respectively.},
+label=lst:refinement,float=t]
+---- MODULE Refinement_Parent ----
+EXTENDS Parent
+Abs_BackingStore == INSTANCE BackingStore_Abs WITH
+    Keys <- Keys, Vals <- Vals,         (* CONSTANTS from abs *)
+    storePresent <- store_p,            (* abstraction_map    *)
+    storeVal     <- store_v
+Abs_Cache == INSTANCE Cache_Abs WITH ...
+RefinementSpec == /\ Abs_BackingStore!Spec
+                  /\ Abs_Cache!Spec
+====
+\end{lstlisting}
+
+TLC is then invoked on \texttt{Refinement\_<Parent>.tla} with
+\texttt{SPECIFICATION Spec} (the parent's composed behaviour) and
+\texttt{PROPERTY RefinementSpec}, which fails as soon as any child's
+abstract behaviour is not admitted by its implementation under the
+abstraction map.
+
+\subsection{Counterexample-driven repair}
+TLC's stdout is parsed by \texttt{src/formal/counterexample\_parser.py}
+into an \texttt{ObligationResult} (one per failed check) carrying the
+violated predicate and the offending state sequence. The synthesis agent's
+\texttt{\_serialise\_bundle\_failure} flattens these per-implementation and
+refinement failures into a single \texttt{tool\_result} block that the LLM
+sees on its next turn. The system prompt is cached via Anthropic
+ephemeral \texttt{cache\_control} so that repair iterations re-use the same
+prompt without paying the input-token cost again.
+
+\subsection{Refinement to \texttt{icontract} Python}
+On a verified bundle, \texttt{RefineAgent.to\_python\_package}
+(\texttt{src/agents/refine\_agent.py}) makes one LLM call per implementation
+to emit a Python module --- one class per implementation, with
+\texttt{@icontract.invariant} for each conjunct of the verified
+\inv{}, and \texttt{@require}/\texttt{@ensure} for each method --- then one
+more call to emit a parent \texttt{app.py} that composes the children. Each
+mutating method calls a tiny \texttt{log\_action(name, state)} shim that
+appends one JSONL line of (action name, abstract-variable snapshot) to a
+trace file at runtime; this is the substrate for the trace gate.
+
+\subsection{Trace conformance (advisory)}
+\texttt{TraceGate.check} (\texttt{src/agents/trace\_gate.py}) subprocesses
+the emitted package once with a seeded RNG and a step budget (default 50),
+collects the \texttt{trace.jsonl} that the \texttt{log\_action} shim
+produced, partitions entries by class prefix, and for each child renders a
+\texttt{Trace\_<Name>.tla} module (Listing~\ref{lst:trace}) per
+Cirstea et al.~\cite{cirstea2024}.
+
+\begin{lstlisting}[caption={Generated \texttt{Trace\_<Name>.tla}, replaying
+one execution against the child's abstract spec.},label=lst:trace,float=t]
+---- MODULE Trace_Queue ----
+EXTENDS Queue_Abs, Sequences, Naturals, TLC
+Trace == << [event |-> "Enqueue", q |-> << >>],
+            [event |-> "Enqueue", q |-> << 1 >>], ... >>
+VARIABLE l
+IsEvent(e) ==
+    /\ l \in 1..(Len(Trace) - 1)
+    /\ Trace[l + 1].event = e
+    /\ q' = Trace[l + 1].q
+    /\ l' = l + 1
+TraceInit == l = 1 /\ q = Trace[1].q
+TraceNext == \/ IsEvent("Enqueue") /\ Enqueue
+             \/ IsEvent("Dequeue") /\ Dequeue
+TraceSpec == TraceInit /\ [][TraceNext]_<<l, q>>
+====
+\end{lstlisting}
+
+TLC is then run with \texttt{SPECIFICATION TraceSpec, INVARIANT Inv}. Since
+TLC 2.19 has no \texttt{POSTCONDITION}, we classify the outcome from
+TLC's reported depth: depth equal to the trace length with no error is
+\texttt{conforms}; smaller depth with no error is \texttt{diverged at step
+$K+1$}; an invariant violation is \texttt{invariant\_violated}; the rest is
+\texttt{tlc\_timeout} or \texttt{tlc\_error}. Crucially, trace failures are
+\emph{advisory only}: \texttt{CompositionalPipelineResult.status} is set by
+the four static obligations, and trace results are reported alongside but do
+not flip a verified bundle to unverified. The rationale is that the static
+obligations already prove refinement over \emph{all} behaviours; the trace
+gate is runtime evidence that the actual Python execution stays inside that
+refinement.
+
+\section{Implementation}\label{sec:impl}
+
+The repository layout is shown in Figure~\ref{fig:layout}. The LLM backbone
+is Claude Opus 4.7~\cite{anthropic-claude} with a three-tier overload
+fallback: \texttt{claude-opus-4-7} $\xrightarrow{\texttt{529}}$
+\texttt{claude-opus-4-6} $\xrightarrow{\texttt{529}}$ a tertiary OpenAI
+adapter that translates between Anthropic-shape and OpenAI-shape
+\texttt{tool\_use}. The verifier engine is TLC~2.19, driven as a subprocess
+with \texttt{-config <obligation>.cfg -workers auto -deadlock}.
+
+\begin{figure}[t]
+\begin{lstlisting}
+src/
+  agents/   planner_agent, synth_agent, verifier,
+            refine_agent, trace_gate
+  formal/   pcal_translator, tla_runner, tlc_config,
+            counterexample_parser, refinement, trace_renderer,
+            trace_postcondition
+  llm/      anthropic_client, openai_adapter, tools, prompts
+  models/   task, decomposition, synthesis, bundle, proof
+  main.py   run_pipeline + run_compositional_pipeline
+  cli.py    Typer CLI (--compositional/--legacy)
+examples/   8 benchmarks (2 legacy + 6 compositional)
+scripts/    run_benchmarks.py (CSV + Markdown sweep)
+tests/      24 test files, 182 cases (offline + TLC-gated + e2e)
+\end{lstlisting}
+\caption{Repository layout.}
+\label{fig:layout}
+\end{figure}
+
+The data plane is a single \texttt{CompositionalPipelineResult}
+(\texttt{src/models/task.py}) carrying \texttt{status}, the
+\texttt{DecompositionPlan}, the verified \texttt{ModuleBundle}, the
+\texttt{CompositionalProofBundle} (one \texttt{ProofBundle} per child plus
+the refinement \texttt{ObligationResult}), the emitted \texttt{PythonPackage},
+the \texttt{traces} dict (one \texttt{TraceResult} per child), and a
+\texttt{trace\_skipped\_reason} when the gate was not run (e.g.\ because the
+bundle was unverified).
+
+\section{Evaluation}\label{sec:eval}
+
+\subsection{Offline test suite}
+The repository ships 24 \texttt{pytest} files exercising the pipeline at
+three boundary levels: pure unit tests of the data models, the
+counterexample parser, the trace renderer, and the refinement-module
+generator; mocked-LLM tests of the planner, synthesiser, and refiner that
+replay captured tool-call traces; and TLC-gated integration tests that
+verify the trace gate end-to-end against a real \texttt{tla2tools.jar} and
+exercise the legacy bounded-counter fixtures. The offline suite currently
+runs at \textbf{182/182} passing without an Anthropic API key or
+\texttt{tla2tools.jar}, with external dependencies mocked at the boundary.
+
+\subsection{Benchmark suite}
+The benchmark suite is two legacy single-module baselines plus six
+compositional programs (Table~\ref{tbl:bench}). Each compositional
+benchmark ships a \texttt{prompt.txt} and a reference
+\texttt{expected\_modules.yaml} used only for evaluation diff --- the
+expected decomposition is \emph{not} forced on the planner.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Slug & Modules & Safety property \\
+\midrule
+\texttt{bounded\_counter}   & 1 (single)                & bounded in $0..10$ \\
+\texttt{bank\_transfer}     & 1 (single)                & sum preserved \\
+\midrule
+\texttt{producer\_consumer} & Queue (abs+impl), Producer, Consumer & no item lost; bounded queue \\
+\texttt{cache\_store}       & Cache (abs+impl), Store              & read-after-write consistency \\
+\texttt{bank\_audit}        & Account, Ledger, Transfer            & sum preserved; ledger ${\Leftrightarrow}$ balance \\
+\texttt{two\_phase\_commit} & ResourceManager, Coordinator         & agreement; no commit$\to$abort \\
+\texttt{leader\_log}        & Node, Election                        & $\leq 1$ leader/term; log monotone \\
+\texttt{rw\_lock}           & RwLock, Client                        & mutex on write; reader\_count \\
+\bottomrule
+\end{tabular}
+\caption{Benchmark suite. The six compositional benchmarks were
+hand-authored to cover producer/consumer queues, caches/stores, ledgers,
+distributed commit, leader election, and locking.}
+\label{tbl:bench}
+\end{table}
+
+\subsection{Live sweep (in progress)}
+The live benchmark sweep is driven by \texttt{scripts/run\_benchmarks.py},
+which writes one CSV row per benchmark with the columns
+\texttt{slug, status, iters, n\_impls, ref\_status, per\_module\_pass,
+per\_module\_fail, trace\_conform, trace\_diverged, trace\_inv\_violated,
+trace\_other, pipeline\_seconds, total\_tlc\_seconds, error\_note}.
+Table~\ref{tbl:results} reports the most recent sweep; the target is at
+least four of six compositional benchmarks reaching
+\texttt{status="verified"}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccccccc}
+\toprule
+Slug & Status & Iters & Init/Consec/Prop & Refinement & Traces & TLC s \\
+\midrule
+% TODO: paste rows from report/bench_results.csv when the sweep completes.
+\texttt{bounded\_counter}   & --- & --- & --- & --- & --- & --- \\
+\texttt{bank\_transfer}     & --- & --- & --- & --- & --- & --- \\
+\texttt{producer\_consumer} & --- & --- & --- & --- & --- & --- \\
+\texttt{cache\_store}       & --- & --- & --- & --- & --- & --- \\
+\texttt{bank\_audit}        & --- & --- & --- & --- & --- & --- \\
+\texttt{two\_phase\_commit} & --- & --- & --- & --- & --- & --- \\
+\texttt{leader\_log}        & --- & --- & --- & --- & --- & --- \\
+\texttt{rw\_lock}           & --- & --- & --- & --- & --- & --- \\
+\bottomrule
+\end{tabular}
+\caption{Live benchmark sweep results (to be filled in after the next
+end-to-end run).}
+\label{tbl:results}
+\end{table}
+
+\subsection{Qualitative observations from early live runs}
+The first end-to-end run with live LLM tokens surfaced two systematic
+failure modes that were not visible from offline tests. First, the LLM
+repeatedly emitted PlusCal blocks whose labels collided with PlusCal
+reserved names (\texttt{Done}, \texttt{Error}, \texttt{Lbl\_N}), causing
+\texttt{pcal.trans} to reject the module before TLC was ever invoked.
+Second, the refinement aux module generator initially omitted
+\texttt{CONSTANTS} substitutions in the \texttt{INSTANCE} clauses, causing
+SANY to fail to link the parent's variables to the abstract modules and
+report cascading ``unknown operator'' errors. Both traps were observable
+from inside TLC's stdout and parsed by our counterexample channel, but the
+LLM regenerated the same structural error across all three repair
+iterations: the repair signal was informative but the model lacked the
+mechanical rule. The fix landed in two places: (i)~the refinement generator
+now parses abs-module \texttt{CONSTANTS} and emits the matching
+\texttt{WITH} bindings, and (ii)~the bundle synthesis system prompt
+explicitly forbids the reserved PlusCal labels. These structural rules
+turned out to be load-bearing for the rest of the suite, which justifies
+the planned hardening pass below.
+
+\section{Limitations and Future Work}\label{sec:limits}
+
+\paragraph{Limitations.} The pipeline targets finite-domain inductive
+checking with TLC; an unbounded inductive proof would need
+TLAPS, which is out of scope. \inv{} must be expressible as an
+initial-state predicate, so each variable must appear under explicit set
+membership. The trace gate is per-child, against the child's abstract
+spec; parent-level trace replay would require richer LLM coupling of
+Python state to parent \TLA{} variables. Parametric abstract actions are
+degraded: when an abstract operator takes arguments (e.g.\ \texttt{Enqueue(item)}),
+the trace gate currently cannot reliably invent the parameter domain and
+keeps only the per-state \inv{} check, dropping the action-relation
+conjunct. Finally, the trace gate assumes the emitted Python is
+deterministic: \texttt{random} is seeded at module import and the
+subprocess runs under \texttt{PYTHONHASHSEED=0}; threading and unseeded
+randomness are out of scope.
+
+\paragraph{Future work.} Four follow-on items are queued.
+(i)~\emph{Status split.} The single \texttt{status} field on
+\texttt{CompositionalPipelineResult} splits into a triple of
+\texttt{formal\_status}, \texttt{python\_status}, and
+\texttt{overall\_status}, so the CLI's exit code reflects runtime
+crashes in the emitted package, not just static verification. (ii)~\emph{Parametric-action fix.}
+\texttt{log\_action} grows a \texttt{params} kwarg; the renderer reads it
+and emits the action-relation conjunct, closing the parametric-action
+degradation. (iii)~\emph{CrossHair gate.} \texttt{crosshair-tool} is added
+as an optional gate behind a \texttt{--crosshair} flag, providing an
+additional symbolic test of the emitted Python contracts.
+(iv)~\emph{Enriched benchmark report.} \texttt{run\_benchmarks.py} is
+extended with per-stage pass rates (TLC-runnable, invariant,
+refinement, trace-conformance) plus action coverage and repair-iteration
+count, so the headline DafnyComp-style comparison can be reported
+directly.
+
+\section{Conclusion}\label{sec:concl}
+
+We have described an agentic \TLA{} pipeline that targets the
+DafnyComp~\cite{dafnycomp2025} compositional-verification gap from the
+\TLA{} side. The pipeline plans a parent-plus-children decomposition,
+co-synthesises abstract and implementation modules for each child,
+discharges three per-implementation TLC obligations plus a cross-module
+refinement obligation in the Hillel-Wayne ADT style~\cite{hillelwayne-tla-adt},
+emits an \texttt{icontract}-decorated Python package, and runs an advisory
+trace-conformance gate~\cite{cirstea2024} against each child's abstract
+spec. The four-obligation static proof is the load-bearing contribution;
+the trace gate is a runtime witness that the emitted Python stays inside
+the proved refinement. The offline test suite is green at 182/182, the
+benchmark suite is built and being swept, and the next hardening pass is
+already scoped against the issues observed in early live runs.
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

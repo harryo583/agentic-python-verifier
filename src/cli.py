@@ -110,6 +110,18 @@ def _render_compositional(result) -> None:
         )
         sys.exit(1)
 
+    if result.status == "refinement_failed":
+        console.print(
+            Panel.fit(
+                f"[bold red]Refinement failed[/bold red] "
+                f"after {result.iterations} verified iteration(s)\n\n"
+                f"{result.note}\n\n"
+                "Emitted Python did not parse; nothing was written to disk.",
+                title="Proof-Driven Verifier (compositional)",
+            )
+        )
+        sys.exit(1)
+
     proof = result.proof
     assert proof is not None
     per_mod = "\n".join(

@@ -1,0 +1,48 @@
+---- MODULE Consumer_Impl ----
+EXTENDS Naturals, Sequences
+
+CONSTANTS MaxVal, MaxLen
+
+(* --algorithm Consumer
+variables received = <<>>, sum = 0;
+begin
+  Loop:
+    while TRUE do
+      if Len(received) < MaxLen then
+        with v \in 1..MaxVal do
+          received := Append(received, v);
+          sum := sum + v;
+        end with;
+      end if;
+    end while;
+end algorithm; *)
+\* BEGIN TRANSLATION (chksum(pcal) = "ffa0cb25" /\ chksum(tla) = "546a8025")
+VARIABLES received, sum
+
+vars == << received, sum >>
+
+Init == (* Global variables *)
+        /\ received = <<>>
+        /\ sum = 0
+
+Next == IF Len(received) < MaxLen
+           THEN /\ \E v \in 1..MaxVal:
+                     /\ received' = Append(received, v)
+                     /\ sum' = sum + v
+           ELSE /\ TRUE
+                /\ UNCHANGED << received, sum >>
+
+Spec == Init /\ [][Next]_vars
+
+\* END TRANSLATION 
+
+SumOf(s) == LET F[i \in 0..Len(s)] == IF i = 0 THEN 0 ELSE F[i-1] + s[i] IN F[Len(s)]
+BSeq(S, n) == UNION { [(1..k) -> S] : k \in 0..n }
+
+Inv == /\ received \in BSeq(1..MaxVal, MaxLen)
+       /\ sum \in 0..(MaxLen * MaxVal)
+       /\ sum = SumOf(received)
+       /\ pc \in {"Loop", "Done"}
+
+Property == sum >= 0
+====

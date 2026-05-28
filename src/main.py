@@ -21,6 +21,7 @@ from src.agents.planner_agent import DecompositionError, PlannerAgent
 from src.agents.refine_agent import (
     RefineAgent,
     RefinedModule,
+    RefineSyntaxError,
     package_init_source,
     trace_shim_source,
 )
@@ -132,7 +133,16 @@ def run_pipeline(
         )
 
     LOGGER.info("Refining verified PlusCal into Python...")
-    refined: RefinedModule = refine.to_python(proposal)
+    try:
+        refined: RefinedModule = refine.to_python(proposal)
+    except RefineSyntaxError as exc:
+        LOGGER.error("Refinement produced invalid Python: %s", exc)
+        return PipelineResult(
+            status="unverified",
+            iterations=iterations,
+            proposal=proposal,
+            bundle=bundle,
+        )
 
     tla_path = settings.tla_dir / f"{proposal.slug}.tla"
     python_path = settings.python_dir / f"{proposal.slug}.py"
@@ -274,7 +284,19 @@ def run_compositional_pipeline(
         )
 
     LOGGER.info("Refining verified bundle into Python package...")
-    package = refine.to_python_package(bundle)
+    try:
+        package = refine.to_python_package(bundle)
+    except RefineSyntaxError as exc:
+        LOGGER.error("Refinement produced invalid Python: %s", exc)
+        return CompositionalPipelineResult(
+            status="refinement_failed",
+            iterations=iterations,
+            plan=plan,
+            bundle=bundle,
+            proof=proof,
+            note=str(exc),
+            trace_skipped_reason="refinement_failed",
+        )
 
     tla_out_dir = settings.tla_dir / bundle.slug
     py_out_dir = settings.python_dir / bundle.slug

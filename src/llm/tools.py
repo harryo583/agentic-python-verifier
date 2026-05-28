@@ -186,10 +186,17 @@ _MODULE_SOURCE_PROPS: dict[str, Any] = {
         "type": "object",
         "description": (
             "For impl modules only: maps each variable of the sibling "
-            "<Name>_Abs module to a TLA+ expression. Expressions must use "
-            "the parent's qualified-alias form (e.g. 'Q!buffer'), not bare "
-            "impl variable names, because the refinement aux module EXTENDS "
-            "the parent which composes impls via named INSTANCE."
+            "<Name>_Abs module to a TLA+ expression. Expressions MUST be in "
+            "terms of the parent's own VARIABLES (the bare names declared in "
+            "the parent module), NOT the '<Alias>!var' form. TLA+'s M!x "
+            "accessor works only for defined operators of M, not for its "
+            "variables — SANY/TLC reject '<Alias>!var' references with "
+            "'Unknown operator: var'. The parent's "
+            "'<Alias> == INSTANCE <Name>_Impl WITH <impl_var> <- <parent_var>' "
+            "has already bound impl variables to parent variables, and the "
+            "refinement aux module EXTENDS the parent so those parent "
+            "variables are in scope. Example: given Queue_Abs.queue and a "
+            "parent variable 'buffer', write {'queue': 'buffer'}."
         ),
         "additionalProperties": {"type": "string"},
         "default": {},

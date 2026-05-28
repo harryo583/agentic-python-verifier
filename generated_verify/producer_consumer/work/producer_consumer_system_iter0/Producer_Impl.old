@@ -1,0 +1,26 @@
+---- MODULE Producer_Impl ----
+EXTENDS Naturals, Sequences
+
+CONSTANT MaxItem
+
+(* --algorithm Producer
+variables generated = << >>, next_item = 1;
+begin
+  Loop:
+    while next_item <= MaxItem do
+      generated := Append(generated, next_item);
+      next_item := next_item + 1;
+    end while;
+  Finish:
+    skip;
+end algorithm; *)
+
+Inv ==
+  /\ next_item \in 1..(MaxItem+1)
+  /\ Len(generated) = next_item - 1
+  /\ \A i \in 1..Len(generated) : generated[i] = i
+  /\ pc \in {"Loop", "Finish", "Done"}
+
+Property == next_item <= MaxItem + 1
+
+====
