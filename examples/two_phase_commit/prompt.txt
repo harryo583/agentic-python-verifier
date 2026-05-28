@@ -1,0 +1,13 @@
+Implement a two-phase commit coordinator with 2 resource managers.
+
+Components:
+  1. Two resource managers RM1 and RM2, each in one of:
+     {"working","prepared","committed","aborted"}. Initially both "working".
+  2. A coordinator that runs 2PC: it issues Prepare to each RM, collects
+     votes, and decides Commit (if all voted prepared) or Abort.
+
+Safety properties:
+  - Agreement: no two RMs end in different terminal decisions
+    (one committed, one aborted is forbidden).
+  - A committed RM was preceded by a coordinator Commit decision.
+  - No RM rolls back from "committed" to anything else.

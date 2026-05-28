@@ -269,7 +269,10 @@ Emit a class-per-module Python module with this structure:
         @icontract.ensure(lambda self, ...: <postcondition>)
         def <action>(self, ...) -> ...:
             ...
-            log_action("<ActionName>", {"<var>": self.<var>, ...})
+            log_action(
+                "<ClassName>.<TLA+ ActionName>",
+                {"<abs_var>": <expression over self that yields the abs value>, ...},
+            )
 
 Rules
 -----
@@ -285,9 +288,25 @@ Rules
   `/\\` -> `and`, `\\/` -> `or`, `\\E x \\in S : P(x)` -> `any(P(x) for x in S)`,
   `\\A x \\in S : P(x)` -> `all(P(x) for x in S)`. Use only Python stdlib.
 * The last statement of every state-mutating method must call
-  `log_action("<ActionName>", {<state snapshot as Python dict>})`. The
-  state snapshot reads attributes of `self`; no I/O, no side effects.
-  Import is `from ._trace import log_action`.
+  `log_action(...)`. Import is `from ._trace import log_action`. Two strict
+  rules govern that call (the Week-3 trace-conformance gate parses them):
+
+  (1) The action name MUST be `"<ThisClassName>.<TLA+ ActionName>"` where
+      `<TLA+ ActionName>` matches the corresponding action operator in the
+      sibling `<Name>_Abs.tla` module (e.g. `"Queue.Enqueue"`). The gate
+      uses the dot prefix to attribute each entry to its emitting class.
+
+  (2) The dict's KEYS MUST be the sibling Abs module's variable names (not
+      the impl's Python attribute names). The user message lists the
+      `abstraction_map` mapping `abs_var <- expr_over_impl_vars`. For each
+      abs variable on the left, write one dict entry mapping that abs name
+      to a Python expression on `self` that evaluates to the corresponding
+      value, taking a shallow copy for mutables. Example given
+      `abstraction_map = {queue: 'buffer'}`:
+          log_action("Queue.Enqueue", {"queue": list(self.buffer)})
+      The trace gate replays these dicts as TLA+ records against
+      `<Name>_Abs.tla` verbatim, so the keys MUST be the abs vars.
+
 * Provide `class_name` (the public class) and `entry_function` (a method
   name on that class that exercises the algorithm, typically the first
   action). Populate `assertion_map` mapping each TLA+ Inv conjunct to the
@@ -349,11 +368,18 @@ Rules
 * The class invariant must encode the parent's composed `Inv` (one
   `@icontract.invariant` per top-level conjunct).
 * Provide a `run(steps: int = 50) -> <ParentClass>` entry function. It must
-  be deterministic given a fixed input (no `random` without a seed). The
-  trace-conformance gate will call `run(steps=<budget>)`.
+  be deterministic given a fixed input. The trace-conformance gate calls
+  `run(steps=<budget>)` in a subprocess with `PYTHONHASHSEED=0`. If you use
+  `random` (or any non-deterministic primitive), seed it at module import:
+      import random; random.seed(0)
+  Do NOT use `time`, `os.urandom`, or unseeded `random`.
 * Wire the children by constructing them in `__init__` and exposing
   composed actions as methods on the parent class. Each parent method that
-  mutates composed state must end with `log_action("...", {<dict>})`.
+  mutates composed state must end with a `log_action(...)` call whose
+  action name is `"<ParentClassName>.<StepName>"` (e.g. `"System.Step"`).
+  The Week-3 trace gate uses that prefix to filter parent entries out of
+  per-child replay (parent composition is verified statically by the
+  refinement obligation).
 * Only import: stdlib, `icontract`, `._trace`, and the per-child module
   files. Do NOT invent new dependencies.
 * Provide `class_name`, `entry_function="run"`, and a brief `notes` field

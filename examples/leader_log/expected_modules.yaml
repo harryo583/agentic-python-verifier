@@ -1,0 +1,13 @@
+parent_name: LeaderLog
+parent_role: Composes three nodes with single-leader replication.
+modules:
+  - name: Node
+    role: One replica with a log and term.
+    state_variables: [log, term, role]
+    actions: [AppendEntry, Replicate]
+    invariant_sketch: log length <= 3; entries drawn from 1..3; term in 0..2
+  - name: Election
+    role: Tracks leader assignment per term.
+    state_variables: [leader_of_term]
+    actions: [Elect, StepDown]
+    invariant_sketch: at most one leader per term; term monotonicity

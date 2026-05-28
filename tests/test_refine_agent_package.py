@@ -115,7 +115,7 @@ def _emit_child_block(class_name: str, file_snake: str) -> FakeBlock:
                 f"class {class_name}:\n"
                 "    def __init__(self) -> None: self.x = 0\n"
                 "    def step(self) -> None:\n"
-                "        log_action('Step', {'x': self.x})\n"
+                f"        log_action('{class_name}.Step', {{'x': self.x}})\n"
             ),
             "class_name": class_name,
             "entry_function": "step",
@@ -143,7 +143,7 @@ def _emit_app_block() -> FakeBlock:
                 "        self.l = Lock()\n"
                 "    def step(self) -> None:\n"
                 "        self.q.step(); self.l.step()\n"
-                "        log_action('Step', {})\n"
+                "        log_action('System.Step', {})\n"
                 "def run(steps: int = 50) -> System:\n"
                 "    app = System()\n"
                 "    for _ in range(steps): app.step()\n"
@@ -300,3 +300,29 @@ def test_trace_shim_and_init_sources_are_well_formed():
     # No-op call still works.
     ns["log_action"]("step", {"x": 1})
     assert ns["ACTIONS"] == [("step", {"x": 1})]
+
+
+def test_trace_shim_writes_jsonl_when_env_var_set(tmp_path, monkeypatch):
+    """When TRACE_JSONL_PATH is set at import time, log_action appends a JSON
+    line per call (in addition to the in-memory ACTIONS list)."""
+
+    import json
+
+    jsonl_path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv("TRACE_JSONL_PATH", str(jsonl_path))
+
+    trace_src = trace_shim_source()
+    ns: dict[str, Any] = {}
+    exec(trace_src, ns)
+
+    ns["log_action"]("Queue.Enqueue", {"queue": [1]})
+    ns["log_action"]("Queue.Dequeue", {"queue": []})
+
+    # Force the buffered file to flush before we read it back.
+    ns["_JSONL_FH"].flush()
+
+    assert jsonl_path.exists()
+    lines = jsonl_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == {"action": "Queue.Enqueue", "state": {"queue": [1]}}
+    assert json.loads(lines[1]) == {"action": "Queue.Dequeue", "state": {"queue": []}}

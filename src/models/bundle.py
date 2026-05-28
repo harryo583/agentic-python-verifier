@@ -186,12 +186,39 @@ class PythonPackage(BaseModel):
     notes: str = ""
 
 
-class TraceResult(BaseModel):
-    """Outcome of the trace-conformance gate (Week 3 placeholder)."""
+TraceStatus = Literal[
+    "conforms",
+    "diverged",
+    "invariant_violated",
+    "empty",
+    "python_crashed",
+    "tlc_timeout",
+    "tlc_error",
+    "skipped",
+]
 
-    conforms: bool
+
+class TraceResult(BaseModel):
+    """Outcome of the trace-conformance gate for one child impl module.
+
+    `status` is the authoritative outcome enum; `conforms` is a derived
+    convenience property kept for backwards compatibility with the Week-1
+    placeholder. `tla_depth` is TLC's reported state-graph depth, and
+    `trace_length` is the number of JSONL entries attributed to this child.
+    `divergence_step` is the 1-indexed trace position where the spec rejected
+    the recorded transition (or where an invariant violation was observed).
+    """
+
+    child_name: str = ""
+    status: TraceStatus = "skipped"
+    tla_depth: Optional[int] = None
+    trace_length: Optional[int] = None
     divergence_step: Optional[int] = None
     note: str = ""
+
+    @property
+    def conforms(self) -> bool:
+        return self.status == "conforms"
 
 
 def to_snake_case(name: str) -> str:

@@ -42,6 +42,13 @@ def generate(
             "--legacy regenerates the single-module baseline."
         ),
     ),
+    skip_trace_gate: bool = typer.Option(
+        False,
+        "--skip-trace-gate/--no-skip-trace-gate",
+        help=(
+            "Skip the Week-3 trace-conformance gate. Has no effect with --legacy."
+        ),
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging."),
 ) -> None:
     """Run the full co-synthesis pipeline on PROMPT."""
@@ -52,6 +59,7 @@ def generate(
         max_iterations=max_iterations,
         model=model,
     )
+    settings.skip_trace_gate = skip_trace_gate
     configure_logging(settings.log_level)
     task = TaskRequest(prompt=prompt, max_iterations=max_iterations)
 
@@ -113,22 +121,54 @@ def _render_compositional(result) -> None:
         f"Refinement: {proof.refinement.status}"
     )
 
+    trace_block = _format_trace_block(result)
+
     if result.status == "verified":
         body = (
             f"[bold green]Verified[/bold green] in {result.iterations} iteration(s)\n\n"
             f"{obligations}\n\n"
+            f"{trace_block}\n\n"
             f"TLA+:   {result.tla_dir}\n"
             f"Python: {result.python_dir}"
         )
     else:
         body = (
             f"[bold yellow]Unverified[/bold yellow] after {result.iterations} iteration(s)\n\n"
-            f"{obligations}"
+            f"{obligations}\n\n"
+            f"{trace_block}"
         )
 
     console.print(Panel.fit(body, title="Proof-Driven Verifier (compositional)"))
     if result.status != "verified":
         sys.exit(1)
+
+
+def _format_trace_block(result) -> str:
+    """Format the trace-conformance section. Advisory only; never changes exit."""
+
+    if result.trace_skipped_reason:
+        return f"Trace conformance: [dim]skipped ({result.trace_skipped_reason})[/dim]"
+    if not result.traces:
+        return "Trace conformance: [dim]not run[/dim]"
+    lines = ["Trace conformance:"]
+    for name, tr in result.traces.items():
+        colour = {
+            "conforms": "green",
+            "diverged": "yellow",
+            "invariant_violated": "red",
+            "empty": "dim",
+            "python_crashed": "red",
+            "tlc_timeout": "yellow",
+            "tlc_error": "red",
+            "skipped": "dim",
+        }.get(tr.status, "white")
+        detail = ""
+        if tr.tla_depth is not None and tr.trace_length is not None:
+            detail = f" ({tr.tla_depth}/{tr.trace_length} steps)"
+        elif tr.divergence_step is not None:
+            detail = f" (diverged at step {tr.divergence_step})"
+        lines.append(f"  {name:<16} [{colour}]{tr.status}[/{colour}]{detail}")
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":

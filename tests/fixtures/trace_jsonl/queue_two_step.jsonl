@@ -1,0 +1,2 @@
+{"action": "Queue.Enqueue", "state": {"queue": [1]}}
+{"action": "Queue.Dequeue", "state": {"queue": []}}

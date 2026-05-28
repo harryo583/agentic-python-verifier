@@ -1,0 +1,14 @@
+Implement a single-writer / multi-reader lock with 3 client threads.
+
+Components:
+  1. A lock with state in {"free","read","write"} and a non-negative
+     reader counter (bounded at 3).
+  2. Three clients, each in {"idle","reading","writing"}.
+
+Safety properties:
+  - Mutual exclusion: when state="write", reader_count=0 and at most one
+    client is in "writing".
+  - No torn state: if any client is "reading", state="read" and
+    reader_count >= 1; if state="free", reader_count=0 and no client
+    is reading or writing.
+  - reader_count always equals the number of clients in state "reading".

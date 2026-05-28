@@ -1,0 +1,13 @@
+parent_name: RwLockSystem
+parent_role: Composes a read-write lock with three clients.
+modules:
+  - name: RwLock
+    role: Lock state and reader count.
+    state_variables: [state, reader_count]
+    actions: [AcquireRead, ReleaseRead, AcquireWrite, ReleaseWrite]
+    invariant_sketch: state in {"free","read","write"}; write implies reader_count=0
+  - name: Client
+    role: One client's lifecycle through the lock.
+    state_variables: [client_state]
+    actions: [BeginRead, EndRead, BeginWrite, EndWrite]
+    invariant_sketch: client_state in {"idle","reading","writing"}

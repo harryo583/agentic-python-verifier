@@ -1,0 +1,13 @@
+parent_name: TwoPhaseCommit
+parent_role: Coordinates two resource managers through prepare/commit/abort.
+modules:
+  - name: ResourceManager
+    role: Holds a single RM's state through the 2PC lifecycle.
+    state_variables: [rm_state]
+    actions: [Prepare, Commit, Abort]
+    invariant_sketch: rm_state in {"working","prepared","committed","aborted"}; no commit->abort regression
+  - name: Coordinator
+    role: Issues prepare, collects votes, decides commit or abort.
+    state_variables: [decision, votes]
+    actions: [IssuePrepare, ReceiveVote, Decide]
+    invariant_sketch: decision in {"unknown","commit","abort"}; commit requires all votes prepared

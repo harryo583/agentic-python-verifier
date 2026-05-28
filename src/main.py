@@ -25,6 +25,7 @@ from src.agents.refine_agent import (
     trace_shim_source,
 )
 from src.agents.synth_agent import SynthesisAgent
+from src.agents.trace_gate import TraceGate
 from src.agents.verifier import Verifier
 from src.config import Settings, get_settings, require_runtime_settings
 from src.llm.anthropic_client import AnthropicClient
@@ -32,6 +33,7 @@ from src.models.bundle import (
     CompositionalProofBundle,
     ModuleBundle,
     PythonPackage,
+    TraceResult,
 )
 from src.models.proof import ProofBundle
 from src.models.synthesis import SynthesisProposal
@@ -156,6 +158,7 @@ def run_compositional_pipeline(
     settings: Settings,
     client: Optional[AnthropicClient] = None,
     verifier: Optional[Verifier] = None,
+    trace_gate: Optional[TraceGate] = None,
 ) -> CompositionalPipelineResult:
     """Run the multi-module compositional pipeline.
 
@@ -206,6 +209,7 @@ def run_compositional_pipeline(
             status="planner_failed",
             iterations=0,
             note=str(exc),
+            trace_skipped_reason="planner_failed",
         )
 
     LOGGER.info(
@@ -266,6 +270,7 @@ def run_compositional_pipeline(
             plan=plan,
             bundle=bundle,
             proof=proof,
+            trace_skipped_reason="package_unverified",
         )
 
     LOGGER.info("Refining verified bundle into Python package...")
@@ -278,6 +283,26 @@ def run_compositional_pipeline(
     _write_bundle_outputs(bundle, last_work_dir, tla_out_dir)
     _write_package_outputs(package, py_out_dir)
 
+    traces: dict[str, TraceResult] = {}
+    trace_skipped_reason: Optional[str] = None
+    if settings.skip_trace_gate:
+        trace_skipped_reason = "skip_trace_gate flag set"
+        LOGGER.info("Trace gate skipped (--skip-trace-gate).")
+    else:
+        gate = trace_gate or TraceGate(settings=settings)
+        trace_work = last_work_dir / "trace"
+        ensure_directory(trace_work)
+        LOGGER.info("Running trace-conformance gate on emitted package...")
+        traces = gate.check(package, bundle, trace_work)
+        for name, result in traces.items():
+            LOGGER.info(
+                "trace[%s]: %s (depth=%s, len=%s)",
+                name,
+                result.status,
+                result.tla_depth,
+                result.trace_length,
+            )
+
     return CompositionalPipelineResult(
         status="verified",
         iterations=iterations,
@@ -286,6 +311,8 @@ def run_compositional_pipeline(
         proof=proof,
         tla_dir=tla_out_dir,
         python_dir=py_out_dir,
+        traces=traces,
+        trace_skipped_reason=trace_skipped_reason,
     )
 
 

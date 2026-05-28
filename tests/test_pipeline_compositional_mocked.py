@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from src.agents.trace_gate import TraceGate
 from src.agents.verifier import Verifier
 from src.config import Settings
 from src.llm.anthropic_client import AnthropicClient
@@ -15,6 +16,8 @@ from src.main import run_compositional_pipeline
 from src.models.bundle import (
     CompositionalProofBundle,
     ModuleBundle,
+    PythonPackage,
+    TraceResult,
 )
 from src.models.proof import (
     Counterexample,
@@ -159,7 +162,7 @@ def _emit_child_input(class_name: str) -> dict[str, Any]:
             f"class {class_name}:\n"
             "    def __init__(self) -> None: self.x = 0\n"
             "    def step(self) -> None:\n"
-            "        log_action('Step', {'x': self.x})\n"
+            f"        log_action('{class_name}.Step', {{'x': self.x}})\n"
         ),
         "class_name": class_name,
         "entry_function": "step",
@@ -180,7 +183,7 @@ _APP_INPUT = {
         "        self.l = Lock()\n"
         "    def step(self) -> None:\n"
         "        self.q.step(); self.l.step()\n"
-        "        log_action('Step', {})\n"
+        "        log_action('System.Step', {})\n"
         "def run(steps: int = 50) -> System:\n"
         "    app = System()\n"
         "    for _ in range(steps): app.step()\n"
@@ -243,6 +246,24 @@ class ScriptedVerifier(Verifier):
         return self._scripted.pop(0)
 
 
+class StubTraceGate:
+    """Bypasses subprocessing + TLC; returns whatever the test scripted."""
+
+    def __init__(self, scripted: dict[str, TraceResult] | None = None):
+        self._scripted = scripted if scripted is not None else {}
+        self.calls: list[tuple[PythonPackage, ModuleBundle, Path]] = []
+
+    def check(
+        self,
+        package: PythonPackage,
+        bundle: ModuleBundle,
+        work_dir: Path,
+    ) -> dict[str, TraceResult]:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        self.calls.append((package, bundle, work_dir))
+        return dict(self._scripted)
+
+
 def _all_passing_proof() -> CompositionalProofBundle:
     return CompositionalProofBundle(
         per_module={
@@ -292,6 +313,7 @@ def test_compositional_pipeline_succeeds_on_first_iteration(tmp_path: Path):
         settings,
         client=client,
         verifier=verifier,
+        trace_gate=StubTraceGate(),
     )
 
     assert result.status == "verified"
@@ -337,6 +359,7 @@ def test_compositional_pipeline_repairs_then_succeeds(tmp_path: Path):
         settings,
         client=client,
         verifier=verifier,
+        trace_gate=StubTraceGate(),
     )
 
     assert result.status == "verified"
@@ -364,6 +387,7 @@ def test_compositional_pipeline_exhausts_iterations_and_returns_unverified(tmp_p
         settings,
         client=client,
         verifier=verifier,
+        trace_gate=StubTraceGate(),
     )
 
     assert result.status == "unverified"
@@ -373,6 +397,8 @@ def test_compositional_pipeline_exhausts_iterations_and_returns_unverified(tmp_p
     # Verified proof must still surface so the caller can inspect it.
     assert result.proof is not None
     assert "Queue" in result.proof.failing_modules()
+    assert result.traces == {}
+    assert result.trace_skipped_reason == "package_unverified"
 
 
 def test_compositional_pipeline_handles_planner_failure(tmp_path: Path):
@@ -410,9 +436,98 @@ def test_compositional_pipeline_handles_planner_failure(tmp_path: Path):
         settings,
         client=client,
         verifier=verifier,
+        trace_gate=StubTraceGate(),
     )
 
     assert result.status == "planner_failed"
     assert result.iterations == 0
     assert result.proof is None
     assert "exhausted" in result.note.lower()
+    assert result.trace_skipped_reason == "planner_failed"
+
+
+def test_compositional_pipeline_threads_trace_result(tmp_path: Path):
+    """Successful pipeline runs the trace gate and surfaces results."""
+
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_bundle", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+    gate = StubTraceGate(
+        {
+            "Queue": TraceResult(
+                child_name="Queue",
+                status="conforms",
+                tla_depth=10,
+                trace_length=10,
+            ),
+            "Lock": TraceResult(
+                child_name="Lock",
+                status="diverged",
+                tla_depth=2,
+                trace_length=5,
+                divergence_step=3,
+                note="example divergence",
+            ),
+        }
+    )
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="bounded queue + lock", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=gate,
+    )
+
+    # Pipeline status is unchanged by trace results (advisory only).
+    assert result.status == "verified"
+    assert result.trace_skipped_reason is None
+    assert set(result.traces.keys()) == {"Queue", "Lock"}
+    assert result.traces["Queue"].conforms is True
+    assert result.traces["Lock"].conforms is False
+    assert result.traces["Lock"].divergence_step == 3
+    # Gate was invoked exactly once with the expected package + bundle.
+    assert len(gate.calls) == 1
+    pkg, bundle, work_dir = gate.calls[0]
+    assert pkg.slug == "system_qlock"
+    assert bundle.slug == "system_qlock"
+    assert work_dir.name == "trace"
+
+
+def test_compositional_pipeline_skip_trace_gate_flag(tmp_path: Path):
+    """--skip-trace-gate skips the gate and records the reason."""
+
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_bundle", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    settings.skip_trace_gate = True
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+    gate = StubTraceGate({"should_not_be_called": TraceResult(child_name="x", status="conforms")})
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="bounded queue + lock", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=gate,
+    )
+
+    assert result.status == "verified"
+    assert result.traces == {}
+    assert result.trace_skipped_reason == "skip_trace_gate flag set"
+    assert gate.calls == []

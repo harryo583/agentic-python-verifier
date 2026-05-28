@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from src.models.bundle import (
     CompositionalProofBundle,
     ModuleBundle,
+    TraceResult,
 )
 from src.models.decomposition import DecompositionPlan
 from src.models.proof import ProofBundle
@@ -50,7 +51,15 @@ class PipelineResult(BaseModel):
 
 
 class CompositionalPipelineResult(BaseModel):
-    """Final outcome of a compositional (multi-module) pipeline run."""
+    """Final outcome of a compositional (multi-module) pipeline run.
+
+    `status` reflects ONLY the static proof obligations (per-impl + refinement).
+    Trace-conformance results land in `traces` (keyed by child class name) and
+    are advisory: a non-conforming trace does NOT flip `status` to unverified
+    (per the Week-3 locked decision). `trace_skipped_reason` is populated when
+    the gate was deliberately bypassed (e.g. `--skip-trace-gate`) or could not
+    run (e.g. the package itself was unverified).
+    """
 
     status: Literal["verified", "unverified", "planner_failed"]
     iterations: int
@@ -59,6 +68,8 @@ class CompositionalPipelineResult(BaseModel):
     proof: Optional[CompositionalProofBundle] = None
     tla_dir: Optional[Path] = None
     python_dir: Optional[Path] = None
+    traces: dict[str, TraceResult] = Field(default_factory=dict)
+    trace_skipped_reason: Optional[str] = None
     note: str = ""
 
     model_config = {"arbitrary_types_allowed": True}

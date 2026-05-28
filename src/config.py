@@ -38,6 +38,12 @@ class Settings:
     tlc_timeout_s: int
     log_level: str
 
+    # Week-3 trace-conformance gate
+    trace_timeout_s: int = 30
+    trace_steps: int = 50
+    trace_max_entries: int = 200
+    skip_trace_gate: bool = False
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing."""
@@ -80,6 +86,10 @@ def get_settings(
         or int(os.getenv("AGENT_MAX_ITERATIONS", "5")),
         tlc_timeout_s=int(os.getenv("TLC_TIMEOUT_S", "120")),
         log_level=log_level,
+        trace_timeout_s=int(os.getenv("TRACE_TIMEOUT_S", "30")),
+        trace_steps=int(os.getenv("TRACE_STEPS", "50")),
+        trace_max_entries=int(os.getenv("TRACE_MAX_ENTRIES", "200")),
+        skip_trace_gate=False,
     )
 
 
