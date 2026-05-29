@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.9.23)  28 MAY 2026 12:04
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023) (preloaded format=pdflatex 2023.9.23)  28 MAY 2026 19:40
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -227,25 +227,42 @@ Package xcolor Info: Model `HSB' substituted by `hsb' on input line 1374.
 Package xcolor Info: Model `Gray' substituted by `gray' on input line 1375.
 Package xcolor Info: Model `wave' substituted by `hsb' on input line 1376.
 )
+(/usr/local/texlive/2023/texmf-dist/tex/latex/colortbl/colortbl.sty
+Package: colortbl 2022/06/20 v1.0f Color table columns (DPC)
+
+(/usr/local/texlive/2023/texmf-dist/tex/latex/tools/array.sty
+Package: array 2022/09/04 v2.5g Tabular extension package (FMi)
+\col@sep=\dimen166
+\ar@mcellbox=\box51
+\extrarowheight=\dimen167
+\NC@list=\toks18
+\extratabsurround=\skip51
+\backup@length=\skip52
+\ar@cellbox=\box52
+)
+\everycr=\toks19
+\minrowclearance=\skip53
+\rownum=\count277
+)
 (/usr/local/texlive/2023/texmf-dist/tex/latex/listings/listings.sty
-\lst@mode=\count277
-\lst@gtempboxa=\box51
-\lst@token=\toks18
-\lst@length=\count278
-\lst@currlwidth=\dimen166
-\lst@column=\count279
-\lst@pos=\count280
-\lst@lostspace=\dimen167
-\lst@width=\dimen168
-\lst@newlines=\count281
-\lst@lineno=\count282
-\lst@maxwidth=\dimen169
+\lst@mode=\count278
+\lst@gtempboxa=\box53
+\lst@token=\toks20
+\lst@length=\count279
+\lst@currlwidth=\dimen168
+\lst@column=\count280
+\lst@pos=\count281
+\lst@lostspace=\dimen169
+\lst@width=\dimen170
+\lst@newlines=\count282
+\lst@lineno=\count283
+\lst@maxwidth=\dimen171
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/listings/lstmisc.sty
 File: lstmisc.sty 2023/02/27 1.9 (Carsten Heinz)
-\c@lstnumber=\count283
-\lst@skipnumbers=\count284
-\lst@framebox=\box52
+\c@lstnumber=\count284
+\lst@skipnumbers=\count285
+\lst@framebox=\box54
 )
 (/usr/local/texlive/2023/texmf-dist/tex/latex/listings/listings.cfg
 File: listings.cfg 2023/02/27 1.9 listings configuration
@@ -254,7 +271,7 @@ Package: listings 2023/02/27 1.9 (Carsten Heinz)
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsmath/amsmath.sty
 Package: amsmath 2022/04/08 v2.17n AMS math features
-\@mathmargin=\skip51
+\@mathmargin=\skip54
 
 For additional information on amsmath, use the `?' option.
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsmath/amstext.sty
@@ -262,61 +279,61 @@ Package: amstext 2021/08/26 v2.01 AMS text
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsmath/amsgen.sty
 File: amsgen.sty 1999/11/30 v2.0 generic functions
-\@emptytoks=\toks19
-\ex@=\dimen170
+\@emptytoks=\toks21
+\ex@=\dimen172
 ))
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsmath/amsbsy.sty
 Package: amsbsy 1999/11/29 v1.2d Bold Symbols
-\pmbraise@=\dimen171
+\pmbraise@=\dimen173
 )
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsmath/amsopn.sty
 Package: amsopn 2022/04/08 v2.04 operator names
 )
-\inf@bad=\count285
+\inf@bad=\count286
 LaTeX Info: Redefining \frac on input line 234.
-\uproot@=\count286
-\leftroot@=\count287
+\uproot@=\count287
+\leftroot@=\count288
 LaTeX Info: Redefining \overline on input line 399.
 LaTeX Info: Redefining \colon on input line 410.
-\classnum@=\count288
-\DOTSCASE@=\count289
+\classnum@=\count289
+\DOTSCASE@=\count290
 LaTeX Info: Redefining \ldots on input line 496.
 LaTeX Info: Redefining \dots on input line 499.
 LaTeX Info: Redefining \cdots on input line 620.
-\Mathstrutbox@=\box53
-\strutbox@=\box54
+\Mathstrutbox@=\box55
+\strutbox@=\box56
 LaTeX Info: Redefining \big on input line 722.
 LaTeX Info: Redefining \Big on input line 723.
 LaTeX Info: Redefining \bigg on input line 724.
 LaTeX Info: Redefining \Bigg on input line 725.
-\big@size=\dimen172
+\big@size=\dimen174
 LaTeX Font Info:    Redeclaring font encoding OML on input line 743.
 LaTeX Font Info:    Redeclaring font encoding OMS on input line 744.
-\macc@depth=\count290
+\macc@depth=\count291
 LaTeX Info: Redefining \bmod on input line 905.
 LaTeX Info: Redefining \pmod on input line 910.
 LaTeX Info: Redefining \smash on input line 940.
 LaTeX Info: Redefining \relbar on input line 970.
 LaTeX Info: Redefining \Relbar on input line 971.
-\c@MaxMatrixCols=\count291
+\c@MaxMatrixCols=\count292
 \dotsspace@=\muskip17
-\c@parentequation=\count292
-\dspbrk@lvl=\count293
-\tag@help=\toks20
-\row@=\count294
-\column@=\count295
-\maxfields@=\count296
-\andhelp@=\toks21
-\eqnshift@=\dimen173
-\alignsep@=\dimen174
-\tagshift@=\dimen175
-\tagwidth@=\dimen176
-\totwidth@=\dimen177
-\lineht@=\dimen178
-\@envbody=\toks22
-\multlinegap=\skip52
-\multlinetaggap=\skip53
-\mathdisplay@stack=\toks23
+\c@parentequation=\count293
+\dspbrk@lvl=\count294
+\tag@help=\toks22
+\row@=\count295
+\column@=\count296
+\maxfields@=\count297
+\andhelp@=\toks23
+\eqnshift@=\dimen175
+\alignsep@=\dimen176
+\tagshift@=\dimen177
+\tagwidth@=\dimen178
+\totwidth@=\dimen179
+\lineht@=\dimen180
+\@envbody=\toks24
+\multlinegap=\skip55
+\multlinetaggap=\skip56
+\mathdisplay@stack=\toks25
 LaTeX Info: Redefining \[ on input line 2953.
 LaTeX Info: Redefining \] on input line 2954.
 )
@@ -336,60 +353,60 @@ Package: microtype 2023/03/13 v3.1a Micro-typographical refinements (RS)
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/etoolbox/etoolbox.sty
 Package: etoolbox 2020/10/05 v2.5k e-TeX tools for LaTeX (JAW)
-\etb@tempcnta=\count297
+\etb@tempcnta=\count298
 )
-\MT@toks=\toks24
-\MT@tempbox=\box55
-\MT@count=\count298
+\MT@toks=\toks26
+\MT@tempbox=\box57
+\MT@count=\count299
 LaTeX Info: Redefining \noprotrusionifhmode on input line 1059.
 LaTeX Info: Redefining \leftprotrusion on input line 1060.
-\MT@prot@toks=\toks25
+\MT@prot@toks=\toks27
 LaTeX Info: Redefining \rightprotrusion on input line 1078.
 LaTeX Info: Redefining \textls on input line 1368.
-\MT@outer@kern=\dimen179
+\MT@outer@kern=\dimen181
 LaTeX Info: Redefining \textmicrotypecontext on input line 1988.
-\MT@listname@count=\count299
+\MT@listname@count=\count300
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/microtype/microtype-pdftex.def
 File: microtype-pdftex.def 2023/03/13 v3.1a Definitions specific to pdftex (RS)
 
 LaTeX Info: Redefining \lsstyle on input line 902.
 LaTeX Info: Redefining \lslig on input line 902.
-\MT@outer@space=\skip54
+\MT@outer@space=\skip57
 )
 Package microtype Info: Loading configuration file microtype.cfg.
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/microtype/microtype.cfg
 File: microtype.cfg 2023/03/13 v3.1a microtype main configuration file (RS)
 ))
-Package hyperref Info: Option `colorlinks' set `true' on input line 18.
+Package hyperref Info: Option `colorlinks' set `true' on input line 19.
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
 File: l3backend-pdftex.def 2023-01-16 L3 backend support: PDF output (pdfTeX)
-\l__color_backend_stack_int=\count300
-\l__pdf_internal_box=\box56
+\l__color_backend_stack_int=\count301
+\l__pdf_internal_box=\box58
 )
 (./final_report.aux)
 \openout1 = `final_report.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
-LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 42.
-LaTeX Font Info:    ... okay on input line 42.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
+LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 43.
+LaTeX Font Info:    ... okay on input line 43.
 
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
@@ -425,7 +442,7 @@ LaTeX Font Info:    ... okay on input line 42.
 * \@reversemarginfalse
 * (1in=72.27pt=25.4mm, 1cm=28.453pt)
 
-Package hyperref Info: Link coloring ON on input line 42.
+Package hyperref Info: Link coloring ON on input line 43.
 (./final_report.out) (./final_report.out)
 \@outlinefile=\write3
 \openout3 = `final_report.out'.
@@ -433,32 +450,32 @@ Package hyperref Info: Link coloring ON on input line 42.
 
 (/usr/local/texlive/2023/texmf-dist/tex/context/base/mkii/supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
-\scratchcounter=\count301
-\scratchdimen=\dimen180
-\scratchbox=\box57
-\nofMPsegments=\count302
-\nofMParguments=\count303
-\everyMPshowfont=\toks26
-\MPscratchCnt=\count304
-\MPscratchDim=\dimen181
-\MPnumerator=\count305
-\makeMPintoPDFobject=\count306
-\everyMPtoPDFconversion=\toks27
+\scratchcounter=\count302
+\scratchdimen=\dimen182
+\scratchbox=\box59
+\nofMPsegments=\count303
+\nofMParguments=\count304
+\everyMPshowfont=\toks28
+\MPscratchCnt=\count305
+\MPscratchDim=\dimen183
+\MPnumerator=\count306
+\makeMPintoPDFobject=\count307
+\everyMPtoPDFconversion=\toks29
 )
-\c@lstlisting=\count307
-LaTeX Info: Redefining \microtypecontext on input line 42.
-Package microtype Info: Applying patch `item' on input line 42.
-Package microtype Info: Applying patch `toc' on input line 42.
-Package microtype Info: Applying patch `eqnum' on input line 42.
-Package microtype Info: Applying patch `footnote' on input line 42.
-Package microtype Info: Applying patch `verbatim' on input line 42.
+\c@lstlisting=\count308
+LaTeX Info: Redefining \microtypecontext on input line 43.
+Package microtype Info: Applying patch `item' on input line 43.
+Package microtype Info: Applying patch `toc' on input line 43.
+Package microtype Info: Applying patch `eqnum' on input line 43.
+Package microtype Info: Applying patch `footnote' on input line 43.
+Package microtype Info: Applying patch `verbatim' on input line 43.
 Package microtype Info: Generating PDF output.
 Package microtype Info: Character protrusion enabled (level 2).
 Package microtype Info: Using default protrusion set `alltext'.
 Package microtype Info: Automatic font expansion enabled (level 2),
 (microtype)             stretch: 20, shrink: 20, step: 1, non-selected.
 Package microtype Info: Using default expansion set `alltext-nott'.
-LaTeX Info: Redefining \showhyphens on input line 42.
+LaTeX Info: Redefining \showhyphens on input line 43.
 Package microtype Info: No adjustment of tracking.
 Package microtype Info: No adjustment of interword spacing.
 Package microtype Info: No adjustment of character kerning.
@@ -466,7 +483,7 @@ Package microtype Info: No adjustment of character kerning.
 File: mt-cmr.cfg 2013/05/19 v2.2 microtype config. file: Computer Modern Roman 
 (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msa on input line 45.
+LaTeX Font Info:    Trying to load font information for U+msa on input line 46.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsa.fd
@@ -475,7 +492,7 @@ File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 (/usr/local/texlive/2023/texmf-dist/tex/latex/microtype/mt-msa.cfg
 File: mt-msa.cfg 2006/02/04 v1.1 microtype config. file: AMS symbols (a) (RS)
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 45.
+LaTeX Font Info:    Trying to load font information for U+msb on input line 46.
 
 
 (/usr/local/texlive/2023/texmf-dist/tex/latex/amsfonts/umsb.fd
@@ -493,72 +510,75 @@ Package microtype Info: Loading generic protrusion settings for font family
 {/usr/local/texlive/2023/texmf-var/fonts/map/pdftex/updmap/pdftex.map}{/usr/loc
 al/texlive/2023/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc}] [2]
 LaTeX Font Info:    Trying to load font information for OMS+cmtt on input line 
-238.
-LaTeX Font Info:    No file OMScmtt.fd. on input line 238.
+239.
+LaTeX Font Info:    No file OMScmtt.fd. on input line 239.
 
 
 LaTeX Font Warning: Font shape `OMS/cmtt/m/n' undefined
 (Font)              using `OMS/cmsy/m/n' instead
-(Font)              for symbol `textbackslash' on input line 238.
+(Font)              for symbol `textbackslash' on input line 239.
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 236--239
-[]\OT1/cmr/m/n/10 (+20) Aux \OT1/cmtt/m/n/10 Consec[]<Name>[]Impl.tla \OT1/cmr/
-m/n/10 (+20) with \OT1/cmtt/m/n/10 IInit
+Underfull \hbox (badness 10000) in paragraph at lines 237--240
+[]|\OT1/cmr/m/n/10 (+20) Aux \OT1/cmtt/m/n/10 Consec[]<Name>[]Impl.tla \OT1/cmr
+/m/n/10 (+20) with \OT1/cmtt/m/n/10 IInit
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 236--239
+Underfull \hbox (badness 10000) in paragraph at lines 237--240
 \OT1/cmtt/m/n/10 == Inv\OT1/cmr/m/n/10 (+20) , \OT1/cmtt/m/n/10 ISpec == IInit 
 /\OMS/cmsy/m/n/10 n \OT1/cmtt/m/n/10 [][Next][]vars
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 239--239
-[]\OT1/cmr/m/n/10 (+20) Property
+Underfull \hbox (badness 10000) in paragraph at lines 240--240
+[]|\OT1/cmr/m/n/10 (+20) Property
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 244--246
-[]\OT1/cmr/m/n/10 (+20) Aux \OT1/cmtt/m/n/10 Refinement[]<Parent>.tla\OT1/cmr/m
-/n/10 (+20) ; see List-ing [][]1[][]
+Underfull \hbox (badness 10000) in paragraph at lines 245--247
+[]|\OT1/cmr/m/n/10 (+20) Aux \OT1/cmtt/m/n/10 Refinement[]<Parent>.tla\OT1/cmr/
+m/n/10 (+20) ; see List-ing [][]1[][]
  []
 
 [3]
 Package hyperref Info: bookmark level for unknown lstlisting defaults to 0 on i
-nput line 267.
+nput line 268.
  [4]
 LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <12> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 296.
- [5]
-Underfull \hbox (badness 10000) in paragraph at lines 431--439
-\OT1/cmtt/m/n/10.95 per[]module[]fail, trace[]conform, trace[]diverged, trace[]
-inv[]violated, trace[]other,
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 297.
+ [5] [6]
+LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10.95> not available
+(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 456.
+
+Underfull \hbox (badness 1552) in paragraph at lines 486--492
+\OT1/cmr/m/it/10.95 (+20) Decomposition. \OT1/cmr/m/n/10.95 (+20) Par-ent \OT1/
+cmtt/m/n/10.95 LeaderLog \OT1/cmr/m/n/10.95 (+20) with chil-dren \OT1/cmtt/m/n/
+10.95 Node \OT1/cmr/m/n/10.95 (+20) (log, term, role) and \OT1/cmtt/m/n/10.95 E
+lection
  []
 
-
-LaTeX Warning: `h' float specifier changed to `ht'.
-
-[6] [7] (./final_report.bbl [8]) [9] (./final_report.aux)
+[7] [8] [9] [10] (./final_report.bbl [11]) [12] (./final_report.aux)
 
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
 Package rerunfilecheck Info: File `final_report.out' has not changed.
-(rerunfilecheck)             Checksum: 8B73764D51210CB1883373F0EC3E8D81;2724.
+(rerunfilecheck)             Checksum: 60FFE19AB7394A8B4BA74642A7038F96;2968.
  ) 
 Here is how much of TeX's memory you used:
- 14281 strings out of 476025
- 217308 string characters out of 5790017
+ 14515 strings out of 476025
+ 220571 string characters out of 5790017
  2138388 words of memory out of 5000000
- 34293 multiletter control sequences out of 15000+600000
- 532057 words of font info for 176 fonts, out of 8000000 for 9000
+ 34435 multiletter control sequences out of 15000+600000
+ 535667 words of font info for 214 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
- 75i,14n,76p,1009b,1179s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 75i,15n,76p,1009b,1179s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb
 ></usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb>
 </usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx8.pfb></
 usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmcsc10.pfb></
 usr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></u
+sr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmitt10.pfb></u
 sr/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></us
 r/local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi8.pfb></usr/
 local/texlive/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/lo
@@ -574,10 +594,10 @@ e/2023/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/local/texlive
 /texmf-dist/fonts/type1/public/amsfonts/cm/cmtt8.pfb></usr/local/texlive/2023/t
 exmf-dist/fonts/type1/public/amsfonts/symbols/msam10.pfb></usr/local/texlive/20
 23/texmf-dist/fonts/type1/public/cm-super/sfrm1095.pfb>
-Output written on final_report.pdf (9 pages, 264324 bytes).
+Output written on final_report.pdf (12 pages, 291745 bytes).
 PDF statistics:
- 363 PDF objects out of 1000 (max. 8388607)
- 308 compressed objects within 4 object streams
- 107 named destinations out of 1000 (max. 500000)
- 47753 words of extra memory for PDF output out of 51595 (max. 10000000)
+ 410 PDF objects out of 1000 (max. 8388607)
+ 350 compressed objects within 4 object streams
+ 119 named destinations out of 1000 (max. 500000)
+ 50329 words of extra memory for PDF output out of 51595 (max. 10000000)
 

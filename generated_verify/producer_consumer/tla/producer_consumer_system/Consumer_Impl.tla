@@ -1,44 +1,48 @@
 ---- MODULE Consumer_Impl ----
 EXTENDS Naturals, Sequences
+CONSTANTS MaxLen, MaxVal
 
-CONSTANT MaxLen
+BSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
+
+RECURSIVE SumOf(_)
+SumOf(s) == IF Len(s) = 0 THEN 0 ELSE s[1] + SumOf(Tail(s))
 
 (* --algorithm Consumer
-variables received = << >>, runningSum = 0;
+variables received = << >>, sum = 0;
 begin
   Loop:
     while Len(received) < MaxLen do
-      with v \in 1..10 do
+      with v \in 1..MaxVal do
         received := Append(received, v);
-        runningSum := runningSum + v;
+        sum := sum + v;
       end with;
     end while;
   Finish:
     skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "78f97b3e" /\ chksum(tla) = "15d4ce21")
-VARIABLES received, runningSum, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "1d35d3c" /\ chksum(tla) = "2d9233d3")
+VARIABLES received, sum, pc
 
-vars == << received, runningSum, pc >>
+vars == << received, sum, pc >>
 
 Init == (* Global variables *)
         /\ received = << >>
-        /\ runningSum = 0
+        /\ sum = 0
         /\ pc = "Loop"
 
 Loop == /\ pc = "Loop"
         /\ IF Len(received) < MaxLen
-              THEN /\ \E v \in 1..10:
+              THEN /\ \E v \in 1..MaxVal:
                         /\ received' = Append(received, v)
-                        /\ runningSum' = runningSum + v
+                        /\ sum' = sum + v
                    /\ pc' = "Loop"
               ELSE /\ pc' = "Finish"
-                   /\ UNCHANGED << received, runningSum >>
+                   /\ UNCHANGED << received, sum >>
 
 Finish == /\ pc = "Finish"
           /\ TRUE
           /\ pc' = "Done"
-          /\ UNCHANGED << received, runningSum >>
+          /\ UNCHANGED << received, sum >>
 
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == pc = "Done" /\ UNCHANGED vars
@@ -52,15 +56,11 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-BoundedReceived == UNION { [1..n -> 1..10] : n \in 0..MaxLen }
+Inv ==
+  /\ received \in BSeq(1..MaxVal, MaxLen)
+  /\ sum \in 0..(MaxLen*MaxVal)
+  /\ sum = SumOf(received)
+  /\ pc \in {"Loop", "Finish", "Done"}
 
-RECURSIVE SumSeq(_)
-SumSeq(s) == IF Len(s) = 0 THEN 0 ELSE Head(s) + SumSeq(Tail(s))
-
-Inv == /\ received \in BoundedReceived
-       /\ runningSum \in 0..(MaxLen*10)
-       /\ runningSum = SumSeq(received)
-       /\ pc \in {"Loop", "Finish", "Done"}
-
-Property == runningSum \in 0..(MaxLen*10)
+Property == sum = SumOf(received)
 ====

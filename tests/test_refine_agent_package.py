@@ -9,8 +9,10 @@ import pytest
 
 from src.agents.refine_agent import (
     RefineAgent,
+    RefineRuntimeError,
     RefineSyntaxError,
     package_init_source,
+    smoke_test_package,
     trace_shim_source,
 )
 from src.llm.anthropic_client import AnthropicClient
@@ -324,6 +326,128 @@ def _broken_app_block() -> FakeBlock:
             "entry_function": "run",
         },
     )
+
+
+def test_parent_user_message_includes_child_source():
+    """The parent emit call must include each child's full Python source so
+    the LLM uses the children's actual snake_case attribute names instead
+    of inventing PascalCase ones from the TLA+ spec."""
+
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_emit_child_block("Queue", "queue")]),
+            FakeMessage(content=[_emit_child_block("Lock", "lock")]),
+            FakeMessage(content=[_emit_app_block()]),
+        ]
+    )
+    agent = RefineAgent(client)
+    agent.to_python_package(_bundle())
+
+    app_call_user_text = fake.calls[2]["messages"][0]["content"][0]["text"]
+
+    # Both children's source bodies (a recognisable line each) must appear.
+    assert "class Queue:" in app_call_user_text
+    assert "class Lock:" in app_call_user_text
+    assert "log_action('Queue.Step'" in app_call_user_text
+    assert "log_action('Lock.Step'" in app_call_user_text
+    # And the warning to use exact names, not PascalCase, must be present.
+    assert "snake_case" in app_call_user_text.lower() or "PascalCase" in app_call_user_text
+
+
+def _write_minimal_package(
+    pkg_parent: Any, slug: str, *, child_source: str, app_source: str
+) -> None:
+    """Write a self-contained minimal package to disk for smoke testing."""
+
+    pkg_dir = pkg_parent / slug
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    (pkg_dir / "__init__.py").write_text(package_init_source(), encoding="utf-8")
+    (pkg_dir / "_trace.py").write_text(trace_shim_source(), encoding="utf-8")
+    (pkg_dir / "child.py").write_text(child_source, encoding="utf-8")
+    (pkg_dir / "app.py").write_text(app_source, encoding="utf-8")
+
+
+_GOOD_CHILD = (
+    "from __future__ import annotations\n"
+    "class Child:\n"
+    "    def __init__(self) -> None:\n"
+    "        self.x = 0\n"
+    "    def step(self) -> None:\n"
+    "        self.x += 1\n"
+)
+
+_GOOD_APP = (
+    "from __future__ import annotations\n"
+    "from .child import Child\n"
+    "class System:\n"
+    "    def __init__(self) -> None:\n"
+    "        self.c = Child()\n"
+    "    def step(self) -> None:\n"
+    "        self.c.step()\n"
+    "def run(steps: int = 1) -> System:\n"
+    "    s = System()\n"
+    "    for _ in range(steps):\n"
+    "        s.step()\n"
+    "    return s\n"
+)
+
+
+def test_smoke_test_passes_on_runnable_package(tmp_path):
+    _write_minimal_package(
+        tmp_path, "good_pkg", child_source=_GOOD_CHILD, app_source=_GOOD_APP
+    )
+    # Should not raise.
+    smoke_test_package(slug="good_pkg", package_parent_dir=tmp_path, steps=2)
+
+
+def test_smoke_test_catches_attribute_error_at_runtime(tmp_path):
+    """Mirrors the actual producer/consumer bug: parent references a name
+    that does not exist on the child."""
+
+    bad_app = (
+        "from __future__ import annotations\n"
+        "from .child import Child\n"
+        "class System:\n"
+        "    def __init__(self) -> None:\n"
+        "        self.c = Child()\n"
+        "    def step(self) -> None:\n"
+        "        # `MaxItem` does not exist on Child (it would be `max_item`).\n"
+        "        if self.c.MaxItem > 0: self.c.step()\n"
+        "def run(steps: int = 1) -> System:\n"
+        "    s = System()\n"
+        "    for _ in range(steps): s.step()\n"
+        "    return s\n"
+    )
+    _write_minimal_package(
+        tmp_path, "bad_pkg", child_source=_GOOD_CHILD, app_source=bad_app
+    )
+    with pytest.raises(RefineRuntimeError) as excinfo:
+        smoke_test_package(slug="bad_pkg", package_parent_dir=tmp_path, steps=1)
+    assert "AttributeError" in excinfo.value.stderr
+    assert "MaxItem" in excinfo.value.stderr
+
+
+def test_smoke_test_catches_invariant_violation_on_construction(tmp_path):
+    """If a parent invariant trips during `__init__`, smoke test must fail."""
+
+    bad_app = (
+        "from __future__ import annotations\n"
+        "import icontract\n"
+        "from .child import Child\n"
+        "@icontract.invariant(lambda self: self.c.bogus > 0)\n"
+        "class System:\n"
+        "    def __init__(self) -> None:\n"
+        "        self.c = Child()\n"
+        "def run(steps: int = 1) -> System:\n"
+        "    s = System()\n"
+        "    return s\n"
+    )
+    _write_minimal_package(
+        tmp_path, "inv_pkg", child_source=_GOOD_CHILD, app_source=bad_app
+    )
+    with pytest.raises(RefineRuntimeError) as excinfo:
+        smoke_test_package(slug="inv_pkg", package_parent_dir=tmp_path, steps=1)
+    assert excinfo.value.returncode != 0
 
 
 def test_to_python_package_raises_when_child_has_syntax_error():

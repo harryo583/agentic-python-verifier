@@ -550,6 +550,67 @@ def test_compositional_pipeline_refinement_syntax_error(tmp_path: Path):
     assert "app.py" in result.note
 
 
+def test_compositional_pipeline_runtime_smoke_test_failure(tmp_path: Path):
+    """If the emitted package parses but crashes when imported / run, the
+    pipeline must return `refinement_failed` with python_dir set so the user
+    can inspect the broken files (trace gate must NOT be invoked)."""
+
+    # Parent references self.q.Capacity but children use snake_case attrs —
+    # mirrors the actual producer/consumer bug observed in prod.
+    bad_app_input = {
+        **_APP_INPUT,
+        "python_module": (
+            "from __future__ import annotations\n"
+            "from .queue import Queue\n"
+            "from .lock import Lock\n"
+            "class System:\n"
+            "    def __init__(self) -> None:\n"
+            "        self.q = Queue()\n"
+            "        self.l = Lock()\n"
+            "    def step(self) -> None:\n"
+            "        if self.q.Capacity > 0:\n"
+            "            self.q.step()\n"
+            "def run(steps: int = 50) -> System:\n"
+            "    app = System()\n"
+            "    for _ in range(steps): app.step()\n"
+            "    return app\n"
+        ),
+    }
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_bundle", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", bad_app_input)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+    gate = StubTraceGate({"should_not_be_called": TraceResult(child_name="x", status="conforms")})
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="bounded queue + lock", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=gate,
+    )
+
+    assert result.status == "refinement_failed"
+    # Files are on disk so the user can inspect — distinguishes runtime
+    # failure from the pre-write syntax failure.
+    assert result.python_dir == settings.python_dir / "system_qlock"
+    assert result.tla_dir == settings.tla_dir / "system_qlock"
+    assert (result.python_dir / "app.py").exists()
+    # Trace gate must NOT be invoked when the smoke test fails.
+    assert gate.calls == []
+    assert result.traces == {}
+    assert result.trace_skipped_reason == "refinement_failed"
+    # Note must explain what blew up.
+    assert "AttributeError" in result.note or "Capacity" in result.note
+
+
 def test_compositional_pipeline_skip_trace_gate_flag(tmp_path: Path):
     """--skip-trace-gate skips the gate and records the reason."""
 

@@ -349,7 +349,22 @@ Rules
   `Len(s)` -> `len(s)`, `Append(s, x)` -> `s + [x]`, `Tail(s)` -> `s[1:]`,
   `/\\` -> `and`, `\\/` -> `or`, `\\E x \\in S : P(x)` -> `any(P(x) for x in S)`,
   `\\A x \\in S : P(x)` -> `all(P(x) for x in S)`. Use only Python stdlib.
-* The last statement of every state-mutating method must call
+* Emit one method per **named TLA action** defined in the sibling Abs
+  module (not one method per pc-label). For example if the Abs module
+  defines `Produce` and `Consume`, emit methods `produce(...)` and
+  `consume(...)`; do NOT collapse them into a generic `step()` that
+  dispatches by `pc`. The parent app is the one that picks which child
+  action to fire on each tick.
+* **Stutter steps must NOT call `log_action`.** A transition is a stutter
+  whenever the abs module's `VARIABLES` (everything except `pc`) are
+  unchanged after the call — e.g. Loop→Finish or Finish→Done with no
+  change to `generated` / `received` / etc. Stutters are already
+  permitted by the abs spec's `Spec == Init /\\ [][Next]_vars`; emitting
+  a `log_action(...)` for one will be replayed as a non-stutter
+  transition and trip trace conformance (`diverged` at the stutter
+  step). Equivalently: call `log_action(...)` only inside the branch
+  that actually mutates an abs-spec variable.
+* The mutation branch of every state-mutating method must call
   `log_action(...)`. Import is `from ._trace import log_action`. Two strict
   rules govern that call (the Week-3 trace-conformance gate parses them):
 
@@ -375,6 +390,26 @@ Rules
   Python lambda body for traceability.
 * Do NOT invent behavior absent from the PlusCal. Do NOT add `if __name__ ==`
   blocks. Do NOT import from outside stdlib + `icontract` + `._trace`.
+* `icontract` API quirks that WILL crash the import otherwise:
+  - Do NOT use `@icontract.snapshot(...)`. The library requires that
+    `@icontract.snapshot` sit ABOVE its corresponding `@icontract.ensure`
+    in source order (decorators apply bottom-up), and getting that wrong
+    raises `ValueError: ... no postcondition was defined`. Just rewrite
+    the postcondition without referring to the pre-state — most TLA+
+    conjuncts can be rephrased as `self.field == old_known_value`
+    computed inside the method, or simply elided since the class
+    `@icontract.invariant` already enforces the inductive shape.
+  - `@icontract.ensure(lambda self, ...: P)` lambdas may reference
+    `self` and any method parameter, but NOT a hand-rolled `OLD` argument
+    unless you also opted in via `@icontract.snapshot` (see above; don't).
+  - Every state attribute the class invariants reference MUST be set in
+    `__init__` before the body returns — `@icontract.invariant` runs
+    immediately after `__init__` completes.
+* The emitted module will be subprocess-imported and the parent app's
+  `run(steps=1)` will be called as a refinement-time smoke test. If
+  `import` raises, or a class-level invariant trips on construction,
+  refinement fails and no trace conformance runs. Keep imports/state
+  side-effect-free.
 """
 
 
@@ -429,6 +464,17 @@ Rules
 -----
 * The class invariant must encode the parent's composed `Inv` (one
   `@icontract.invariant` per top-level conjunct).
+* **Match the children's emitted Python verbatim.** The user message
+  includes each child's full source. When you reference a child's state
+  or call its methods, use the *exact* attribute / method / parameter
+  names from that source — the children almost always use lower
+  `snake_case` (e.g. `self.producer.max_item`, `self.queue.capacity`)
+  even when the TLA+ spec used PascalCase CONSTANTS like `MaxItem`,
+  `Capacity`. **Do NOT invent PascalCase attribute names.** Also: if a
+  child method's return type is `None` in the emitted source, treat it
+  as returning `None` — do not assume it returns an item. If you need
+  the head of a queue, read `self.<child>.buffer[0]` (or whatever the
+  child exposes) before calling the mutator.
 * Provide a `run(steps: int = 50) -> <ParentClass>` entry function. It must
   be deterministic given a fixed input. The trace-conformance gate calls
   `run(steps=<budget>)` in a subprocess with `PYTHONHASHSEED=0`. If you use
@@ -442,10 +488,26 @@ Rules
   The Week-3 trace gate uses that prefix to filter parent entries out of
   per-child replay (parent composition is verified statically by the
   refinement obligation).
+* **Atomic-composition rule.** Every parent method (especially `step()`)
+  must execute all the child mutations that belong to a SINGLE composed
+  TLA action — in one method body, before returning. The parent's
+  class-level `@icontract.invariant`s are evaluated after the method
+  returns, so any intermediate state where children disagree (e.g.
+  producer just added to `generated` but the queue hasn't yet enqueued)
+  will trip the joint invariant on the very next check. If the TLA spec
+  models "produce and enqueue" as one atomic transition, call both
+  `self.producer.produce(...)` and `self.queue.enqueue(...)` inside the
+  same `step()` body. Do NOT split a composed transition across multiple
+  ticks of an internal `_turn` counter.
 * Only import: stdlib, `icontract`, `._trace`, and the per-child module
   files. Do NOT invent new dependencies.
 * Provide `class_name`, `entry_function="run"`, and a brief `notes` field
   describing how the composition matches the parent's TLA+ Spec.
+* The package WILL be subprocess-imported and `run(steps=1)` will be
+  called immediately after emission as a smoke test; if the parent
+  invariants trip on construction or `step()` crashes, refinement
+  fails. Make `__init__` arguments default to small values that satisfy
+  every child's preconditions (e.g. `capacity=5`, `max_item=10`).
 """
 
 

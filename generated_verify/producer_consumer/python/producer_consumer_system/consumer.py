@@ -1,4 +1,9 @@
-"""Generated from Consumer_Impl.tla. Inductive Inv: /\\ received \\in BoundedReceived /\\ runningSum \\in 0..(MaxLen*10) /\\ runningSum = SumSeq(received) /\\ pc \\in {"Loop", "Finish", "Done"}."""
+"""Generated from Consumer_Impl.tla. Inductive Inv:
+    /\\ received \\in BSeq(1..MaxVal, MaxLen)
+    /\\ sum \\in 0..(MaxLen*MaxVal)
+    /\\ sum = SumOf(received)
+    /\\ pc \\in {"Loop", "Finish", "Done"}
+"""
 
 from __future__ import annotations
 
@@ -7,46 +12,43 @@ import icontract
 from ._trace import log_action
 
 
-def _sum_seq(s: list[int]) -> int:
+def _sum_of(s: list[int]) -> int:
     return sum(s)
 
 
-def _in_bounded_received(s: list[int], max_len: int) -> bool:
-    return len(s) <= max_len and all(v in range(1, 11) for v in s)
-
-
-@icontract.invariant(lambda self: _in_bounded_received(self.received, self.MaxLen))
-@icontract.invariant(lambda self: self.runningSum in range(0, self.MaxLen * 10 + 1))
-@icontract.invariant(lambda self: self.runningSum == _sum_seq(self.received))
+@icontract.invariant(
+    lambda self: all(v in range(1, self.max_val + 1) for v in self.received)
+    and len(self.received) <= self.max_len
+)
+@icontract.invariant(
+    lambda self: self.sum in range(0, self.max_len * self.max_val + 1)
+)
+@icontract.invariant(lambda self: self.sum == _sum_of(self.received))
 @icontract.invariant(lambda self: self.pc in {"Loop", "Finish", "Done"})
 class Consumer:
-    def __init__(self, MaxLen: int) -> None:
-        self.MaxLen = MaxLen
+    def __init__(self, max_len: int, max_val: int) -> None:
+        self.max_len = max_len
+        self.max_val = max_val
         self.received: list[int] = []
-        self.runningSum: int = 0
+        self.sum: int = 0
         self.pc: str = "Loop"
 
-    @icontract.require(lambda self, v: v in range(1, 11))
-    @icontract.require(lambda self: self.pc == "Loop")
-    @icontract.require(lambda self: len(self.received) < self.MaxLen)
-    @icontract.ensure(lambda self: self.pc in {"Loop", "Finish"})
+    @icontract.require(lambda self, v: 1 <= v <= self.max_val)
     def consume(self, v: int) -> None:
-        self.received = self.received + [v]
-        self.runningSum = self.runningSum + v
-        if len(self.received) >= self.MaxLen:
+        if self.pc == "Loop" and len(self.received) < self.max_len:
+            self.received = self.received + [v]
+            self.sum = self.sum + v
+            log_action(
+                "Consumer.Consume",
+                {
+                    "received": list(self.received),
+                    "sum": self.sum,
+                },
+            )
+        elif self.pc == "Loop":
+            # Loop -> Finish (stutter w.r.t. abs vars)
             self.pc = "Finish"
-        else:
-            self.pc = "Loop"
-        log_action(
-            "Consumer.Consume",
-            {"received": list(self.received), "runningSum": self.runningSum},
-        )
-
-    @icontract.require(lambda self: self.pc == "Finish")
-    @icontract.ensure(lambda self: self.pc == "Done")
-    def finish(self) -> None:
-        self.pc = "Done"
-        log_action(
-            "Consumer.Finish",
-            {"received": list(self.received), "runningSum": self.runningSum},
-        )
+        elif self.pc == "Finish":
+            # Finish -> Done (stutter w.r.t. abs vars)
+            self.pc = "Done"
+        # Done: no-op stutter

@@ -1,30 +1,28 @@
 ---- MODULE Producer_Abs ----
 EXTENDS Naturals, Sequences
-
-CONSTANT MaxItem
-
+CONSTANTS MaxItem
 VARIABLES generated, nextItem
 
-vars == << generated, nextItem >>
+BSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
 
-FullSeq == [ i \in 1..MaxItem |-> i ]
+Init ==
+  /\ generated = << >>
+  /\ nextItem = 1
 
-PrefixSeqs == { [ i \in 1..n |-> i ] : n \in 0..MaxItem }
-
-Init == /\ generated = << >>
-        /\ nextItem = 1
-
-Produce == /\ nextItem <= MaxItem
-           /\ generated' = Append(generated, nextItem)
-           /\ nextItem' = nextItem + 1
+Produce ==
+  /\ nextItem <= MaxItem
+  /\ generated' = Append(generated, nextItem)
+  /\ nextItem' = nextItem + 1
 
 Next == Produce
 
+vars == << generated, nextItem >>
 Spec == Init /\ [][Next]_vars
 
-Inv == /\ nextItem \in 1..(MaxItem+1)
-       /\ generated \in PrefixSeqs
-       /\ Len(generated) = nextItem - 1
+Inv ==
+  /\ generated \in BSeq(1..MaxItem, MaxItem)
+  /\ nextItem \in 1..(MaxItem+1)
+  /\ nextItem = Len(generated) + 1
 
 Property == nextItem <= MaxItem + 1
 ====

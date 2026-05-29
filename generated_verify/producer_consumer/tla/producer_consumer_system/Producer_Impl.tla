@@ -1,7 +1,8 @@
 ---- MODULE Producer_Impl ----
 EXTENDS Naturals, Sequences
+CONSTANTS MaxItem
 
-CONSTANT MaxItem
+BSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
 
 (* --algorithm Producer
 variables generated = << >>, nextItem = 1;
@@ -49,14 +50,11 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-FullSeq == [ i \in 1..MaxItem |-> i ]
-
-PrefixSeqs == { [ i \in 1..n |-> i ] : n \in 0..MaxItem }
-
-Inv == /\ nextItem \in 1..(MaxItem+1)
-       /\ generated \in PrefixSeqs
-       /\ Len(generated) = nextItem - 1
-       /\ pc \in {"Loop", "Finish", "Done"}
+Inv ==
+  /\ generated \in BSeq(1..MaxItem, MaxItem)
+  /\ nextItem \in 1..(MaxItem+1)
+  /\ nextItem = Len(generated) + 1
+  /\ pc \in {"Loop", "Finish", "Done"}
 
 Property == nextItem <= MaxItem + 1
 ====

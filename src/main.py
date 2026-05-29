@@ -21,8 +21,10 @@ from src.agents.planner_agent import DecompositionError, PlannerAgent
 from src.agents.refine_agent import (
     RefineAgent,
     RefinedModule,
+    RefineRuntimeError,
     RefineSyntaxError,
     package_init_source,
+    smoke_test_package,
     trace_shim_source,
 )
 from src.agents.synth_agent import SynthesisAgent
@@ -304,6 +306,28 @@ def run_compositional_pipeline(
     ensure_directory(py_out_dir)
     _write_bundle_outputs(bundle, last_work_dir, tla_out_dir)
     _write_package_outputs(package, py_out_dir)
+
+    LOGGER.info("Running runtime smoke test on emitted package...")
+    try:
+        smoke_test_package(
+            slug=bundle.slug,
+            package_parent_dir=settings.python_dir,
+            steps=1,
+            timeout_s=float(settings.trace_timeout_s),
+        )
+    except RefineRuntimeError as exc:
+        LOGGER.error("Emitted package crashed at runtime: %s", exc)
+        return CompositionalPipelineResult(
+            status="refinement_failed",
+            iterations=iterations,
+            plan=plan,
+            bundle=bundle,
+            proof=proof,
+            tla_dir=tla_out_dir,
+            python_dir=py_out_dir,
+            note=str(exc),
+            trace_skipped_reason="refinement_failed",
+        )
 
     traces: dict[str, TraceResult] = {}
     trace_skipped_reason: Optional[str] = None

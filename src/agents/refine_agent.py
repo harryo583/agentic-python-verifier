@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import ast
 import re
+import shlex
+import subprocess
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from src.llm.anthropic_client import AnthropicClient
@@ -92,6 +96,74 @@ def _validate_python_source(
             message=exc.msg,
             source_excerpt=excerpt,
         ) from exc
+
+
+class RefineRuntimeError(Exception):
+    """Raised when the emitted package imports cleanly but crashes at runtime.
+
+    Catches the class of bugs the static syntax check misses:
+    AttributeError from mismatched attribute names, TypeError from
+    method-signature drift, invariant violations on construction, etc.
+    """
+
+    def __init__(self, *, stderr: str, returncode: int | None) -> None:
+        self.stderr = stderr
+        self.returncode = returncode
+        rc = f"exit code {returncode}" if returncode is not None else "timeout"
+        super().__init__(
+            f"smoke test failed ({rc}); stderr:\n{stderr}"
+        )
+
+
+def smoke_test_package(
+    *,
+    slug: str,
+    package_parent_dir: Path,
+    steps: int = 1,
+    timeout_s: float = 30.0,
+) -> None:
+    """Subprocess-import the package and run `run(steps=...)`.
+
+    Assumes the package has already been written to disk under
+    ``package_parent_dir / slug``. Uses subprocess isolation so any
+    icontract side-effects don't pollute the verifier process. Sets
+    ``PYTHONHASHSEED=0`` to match the trace gate's environment so a
+    smoke-test pass implies the trace gate will at least get past
+    construction.
+    """
+
+    script = (
+        "import sys, os; "
+        f"sys.path.insert(0, {str(package_parent_dir)!r}); "
+        f"from {slug}.app import run; "
+        f"run(steps={steps})"
+    )
+    cmd = [sys.executable, "-X", "faulthandler", "-c", script]
+    env = {
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "PYTHONHASHSEED": "0",
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
+    try:
+        completed = subprocess.run(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        partial = exc.stderr.decode("utf-8", errors="replace") if isinstance(
+            exc.stderr, (bytes, bytearray)
+        ) else (exc.stderr or "")
+        raise RefineRuntimeError(stderr=partial, returncode=None) from exc
+
+    if completed.returncode != 0:
+        raise RefineRuntimeError(
+            stderr=completed.stderr,
+            returncode=completed.returncode,
+        )
 
 
 @dataclass(slots=True)
@@ -207,20 +279,54 @@ class RefineAgent:
     def _emit_parent_app(
         self, bundle: ModuleBundle, children: list[PythonModuleSource]
     ) -> PythonModuleSource:
-        """One LLM call: emit the parent app that imports and composes children."""
+        """One LLM call: emit the parent app that imports and composes children.
 
-        child_lines = []
+        The parent must reference the children by their *exact* emitted Python
+        names (snake_case attributes, method signatures). To pin those down,
+        we include each child's full source in the user message — the LLM
+        otherwise tends to default to TLA-style PascalCase attribute names
+        and crash at first construction. See REFINE_APP_SYSTEM for the rule.
+        """
+
+        # Map child name -> impl ModuleSource so we can surface the TLA cfg
+        # constants the LLM must mirror when constructing each child.
+        impls_by_name = {impl.name: impl for impl in bundle.impls()}
+
+        child_blocks: list[str] = []
         for c in children:
-            child_lines.append(
-                f"  - {c.name}: file `{c.filename}`, class `{c.class_name}`, "
-                f"entry method `{c.entry_function}`"
+            impl = impls_by_name.get(c.name)
+            const_lines = ""
+            if impl is not None and impl.constants.values:
+                const_lines = (
+                    "\n  TLA+ CONSTANT pins for this impl (the python "
+                    "constructor MUST use these exact values so trace "
+                    "conformance replays under matching bounds):\n"
+                    + "\n".join(
+                        f"    - {k} = {v}"
+                        for k, v in impl.constants.values.items()
+                    )
+                )
+            child_blocks.append(
+                f"--- child `{c.name}` (file: `{c.filename}`, "
+                f"class: `{c.class_name}`, entry: `{c.entry_function}`)"
+                f"{const_lines} ---\n"
+                f"```python\n{c.source}```"
             )
 
         user_msg = (
             f"Parent module ({bundle.parent.name}) TLA+ source:\n\n"
             f"{bundle.parent.tla_source}\n\n"
-            "Children already emitted (import them via relative imports):\n"
-            + "\n".join(child_lines)
+            "Children already emitted (their full Python source follows; the "
+            "parent must call each class's actual constructor/method names "
+            "and reference its actual instance attributes — do NOT invent "
+            "PascalCase names from the TLA+ spec). The TLA+ CONSTANT pins "
+            "are listed alongside each child; the parent's constructor for "
+            "that child MUST pass values consistent with those pins (e.g. "
+            "if the impl's `MaxLen = [3]`, instantiate the child with "
+            "`max_len=3` — using a larger value will cause the trace gate "
+            "to report `invariant_violated` because the spec rejects the "
+            "out-of-range state):\n\n"
+            + "\n\n".join(child_blocks)
             + "\n\nEmit the parent app module per the system prompt. Use "
             f"`from ._trace import log_action`. The composed class should be "
             f"named `{bundle.parent.name}` (matching the parent's TLA+ module)."

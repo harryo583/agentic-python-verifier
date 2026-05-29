@@ -59,21 +59,38 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Trace conformance (advisory)}{5}{subsection.3.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {4}Implementation}{5}{section.4}\protected@file@percent }
 \newlabel{sec:impl}{{4}{5}{Implementation}{section.4}{}}
+\citation{lamport2002specifying}
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Repository layout.}}{6}{figure.2}\protected@file@percent }
 \newlabel{fig:layout}{{2}{6}{Repository layout}{figure.2}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Evaluation}{6}{section.5}\protected@file@percent }
 \newlabel{sec:eval}{{5}{6}{Evaluation}{section.5}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Offline test suite}{6}{subsection.5.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Benchmark suite}{6}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Live sweep (in progress)}{6}{subsection.5.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, caches/stores, ledgers, distributed commit, leader election, and locking.}}{7}{table.2}\protected@file@percent }
-\newlabel{tbl:bench}{{2}{7}{Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, caches/stores, ledgers, distributed commit, leader election, and locking}{table.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Live benchmark sweep results (to be filled in after the next end-to-end run).}}{7}{table.3}\protected@file@percent }
-\newlabel{tbl:results}{{3}{7}{Live benchmark sweep results (to be filled in after the next end-to-end run)}{table.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Qualitative observations from early live runs}{7}{subsection.5.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Limitations and Future Work}{7}{section.6}\protected@file@percent }
-\newlabel{sec:limits}{{6}{7}{Limitations and Future Work}{section.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{Limitations.}{7}{section*.6}\protected@file@percent }
+\newlabel{ssec:tests}{{5.1}{6}{Offline test suite}{subsection.5.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Benchmark catalog}{6}{subsection.5.2}\protected@file@percent }
+\newlabel{ssec:bench-catalog}{{5.2}{6}{Benchmark catalog}{subsection.5.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, write-through caches, audit ledgers, distributed commit, leader election, and locking.}}{7}{table.2}\protected@file@percent }
+\newlabel{tbl:bench}{{2}{7}{Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, write-through caches, audit ledgers, distributed commit, leader election, and locking}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Per-benchmark detail}{7}{subsection.5.3}\protected@file@percent }
+\newlabel{ssec:bench-detail}{{5.3}{7}{Per-benchmark detail}{subsection.5.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {cache\_store} (verified, 4 iterations, first attempt).}{7}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {leader\_log} (verified, 6 iterations, first attempt).}{7}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {rw\_lock} (verified, 5 iterations, first attempt).}{8}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {two\_phase\_commit} (verified, 3 iterations, first attempt --- fastest in the suite).}{8}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {producer\_consumer} (verified on second attempt; first attempt failed at 6 iterations).}{8}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{\texttt  {bank\_audit} (verified on third attempt; first attempt failed at 6, second at 7).}{8}{section*.11}\protected@file@percent }
+\citation{dafnycomp2025}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Per-benchmark verification trajectories. Columns: repair iteration count, refinement-obligation status, per-module passes/fails, per-child trace outcomes (conform / diverged / invariant-violated), total pipeline wall time, total TLC time. Shaded rows are the reroll attempts that flipped a previously failing benchmark. Source CSVs: \texttt  {report/bench\_results.csv}, \texttt  {report/bench\_rerun.csv}, \texttt  {report/bench\_rerun\_2.csv}.}}{9}{table.3}\protected@file@percent }
+\newlabel{tbl:results}{{3}{9}{Per-benchmark verification trajectories. Columns: repair iteration count, refinement-obligation status, per-module passes/fails, per-child trace outcomes (conform / diverged / invariant-violated), total pipeline wall time, total TLC time. Shaded rows are the reroll attempts that flipped a previously failing benchmark. Source CSVs: \texttt {report/bench\_results.csv}, \texttt {report/bench\_rerun.csv}, \texttt {report/bench\_rerun\_2.csv}}{table.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Legacy single-module baselines.}{9}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Aggregate results}{9}{subsection.5.4}\protected@file@percent }
+\newlabel{ssec:bench-agg}{{5.4}{9}{Aggregate results}{subsection.5.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Discussion: reroll dominates retry}{10}{subsection.5.5}\protected@file@percent }
+\newlabel{ssec:reroll}{{5.5}{10}{Discussion: reroll dominates retry}{subsection.5.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Qualitative observations}{10}{subsection.5.6}\protected@file@percent }
+\newlabel{ssec:qual}{{5.6}{10}{Qualitative observations}{subsection.5.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Limitations and Future Work}{10}{section.6}\protected@file@percent }
+\newlabel{sec:limits}{{6}{10}{Limitations and Future Work}{section.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Limitations.}{10}{section*.13}\protected@file@percent }
 \citation{dafnycomp2025}
 \citation{hillelwayne-tla-adt}
 \citation{cirstea2024}
@@ -86,8 +103,8 @@
 \bibcite{lamport2009pluscal}{5}
 \bibcite{icontract}{6}
 \bibcite{hillelwayne-tla-adt}{7}
-\@writefile{toc}{\contentsline {paragraph}{Future work.}{8}{section*.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{8}{section.7}\protected@file@percent }
-\newlabel{sec:concl}{{7}{8}{Conclusion}{section.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Future work.}{11}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{11}{section.7}\protected@file@percent }
+\newlabel{sec:concl}{{7}{11}{Conclusion}{section.7}{}}
 \bibcite{yu1999tlc}{8}
-\gdef \@abspage@last{9}
+\gdef \@abspage@last{12}

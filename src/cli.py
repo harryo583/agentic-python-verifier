@@ -111,12 +111,23 @@ def _render_compositional(result) -> None:
         sys.exit(1)
 
     if result.status == "refinement_failed":
+        # Two flavours: pre-write syntax failure (python_dir None) and
+        # post-write runtime smoke-test failure (python_dir set, files left
+        # on disk for the user to debug).
+        if result.python_dir is None:
+            footer = "Emitted Python did not parse; nothing was written to disk."
+        else:
+            footer = (
+                f"Emitted package was written to {result.python_dir} but its "
+                "runtime smoke test failed (parent/child names disagree, an "
+                "invariant trips on construction, or `step()` raises)."
+            )
         console.print(
             Panel.fit(
                 f"[bold red]Refinement failed[/bold red] "
                 f"after {result.iterations} verified iteration(s)\n\n"
                 f"{result.note}\n\n"
-                "Emitted Python did not parse; nothing was written to disk.",
+                f"{footer}",
                 title="Proof-Driven Verifier (compositional)",
             )
         )
