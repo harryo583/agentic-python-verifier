@@ -4,17 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentic-python-verifier"
-version = "0.1.0"
-description = "Correctness-first agentic pipeline from natural language to verified Python via PlusCal and TLA+."
+version = "0.2.0"
+description = "Proof-driven Python code generation via agentic PlusCal+invariant co-synthesis."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=0.40",
+    "openai>=1.40",
     "typer>=0.12",
     "rich>=13.7",
     "pydantic>=2.0",
-    "jinja2>=3.1",
     "python-dotenv>=1.0",
+    "icontract>=2.6",
 ]
+
+[project.optional-dependencies]
+crosshair = ["crosshair-tool>=0.0.55"]
 
 [tool.setuptools]
 package-dir = {"" = "."}
@@ -23,3 +28,6 @@ package-dir = {"" = "."}
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "integration: requires TLA2TOOLS_JAR and/or ANTHROPIC_API_KEY",
+]

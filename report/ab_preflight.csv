@@ -1,0 +1,2 @@
+slug,status,iterations,reroll_count,n_modules,n_impls,ref_status,per_module_pass,per_module_fail,trace_conform,trace_diverged,trace_inv_violated,trace_other,pipeline_seconds,total_tlc_seconds,llm_calls,input_tokens,output_tokens,cached_read_tokens,est_usd,error_note
+producer_consumer,verified,4,0,3,3,passed,3,0,3,0,0,0,393.66,7.14,9,31203,26841,13733,3.1456,

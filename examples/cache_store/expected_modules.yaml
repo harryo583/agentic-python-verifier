@@ -1,0 +1,13 @@
+parent_name: CacheStoreSystem
+parent_role: Composes a write-through cache in front of a key-value store.
+modules:
+  - name: Store
+    role: Backing key-value map with bounded domain.
+    state_variables: [data]
+    actions: [Read, Write]
+    invariant_sketch: keys in {a,b,c} and values in 0..5
+  - name: Cache
+    role: Write-through cache; entries must match the store.
+    state_variables: [entries]
+    actions: [Read, Write, Fetch]
+    invariant_sketch: every cache entry matches its store entry

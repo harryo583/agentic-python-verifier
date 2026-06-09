@@ -1,54 +1,94 @@
-"""Helpers for running TLC or a deterministic mock verifier."""
+"""TLC subprocess wrapper."""
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass(slots=True)
-class TLCExecutionResult:
-    """Raw result from a TLC attempt."""
+class TLCRun:
+    """Raw outcome of one TLC invocation."""
 
-    succeeded: bool
-    used_mock: bool
+    returncode: int
     stdout: str
     stderr: str
+    duration_s: float
+    timed_out: bool
+    cfg_path: Path
+    tla_path: Path
 
 
-def run_tlc(tla_file: Path, tlc_jar_path: Optional[str]) -> TLCExecutionResult:
-    """Run TLC if a jar path is configured, otherwise return a mock-verifier marker."""
+class TLCError(RuntimeError):
+    """Raised when TLC cannot be invoked at all (missing java/jar)."""
 
-    if not tlc_jar_path or not Path(tlc_jar_path).exists():
-        return TLCExecutionResult(
-            succeeded=False,
-            used_mock=True,
-            stdout="TLC unavailable; using deterministic mock verifier.",
-            stderr="",
+
+def run_tlc(
+    tla_path: Path,
+    cfg_path: Path,
+    jar: str,
+    workdir: Path,
+    timeout_s: int = 120,
+) -> TLCRun:
+    """Invoke `java -cp <jar> tlc2.TLC -config <cfg> -workers auto -deadlock <tla>`.
+
+    Runs with `workdir` as the cwd so TLC resolves EXTENDS-ed sibling modules.
+    """
+
+    java = shutil.which("java")
+    if java is None:
+        raise TLCError("`java` executable not found on PATH")
+    if not Path(jar).exists():
+        raise TLCError(f"tla2tools.jar not found at {jar}")
+    if not tla_path.exists():
+        raise TLCError(f"TLA+ file not found: {tla_path}")
+    if not cfg_path.exists():
+        raise TLCError(f"TLC config file not found: {cfg_path}")
+
+    cmd = [
+        java,
+        "-cp",
+        jar,
+        "tlc2.TLC",
+        "-config",
+        str(cfg_path.resolve()),
+        "-workers",
+        "auto",
+        "-deadlock",
+        str(tla_path.resolve()),
+    ]
+
+    started = time.monotonic()
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(workdir),
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        elapsed = time.monotonic() - started
+        return TLCRun(
+            returncode=-1,
+            stdout=exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or ""),
+            stderr=exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or ""),
+            duration_s=elapsed,
+            timed_out=True,
+            cfg_path=cfg_path,
+            tla_path=tla_path,
         )
 
-    java_binary = shutil.which("java")
-    if java_binary is None:
-        return TLCExecutionResult(
-            succeeded=False,
-            used_mock=True,
-            stdout="Java runtime unavailable; using deterministic mock verifier.",
-            stderr="",
-        )
-
-    command = [java_binary, "-cp", tlc_jar_path, "tlc2.TLC", str(tla_file)]
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return TLCExecutionResult(
-        succeeded=completed.returncode == 0,
-        used_mock=False,
+    return TLCRun(
+        returncode=completed.returncode,
         stdout=completed.stdout,
         stderr=completed.stderr,
+        duration_s=time.monotonic() - started,
+        timed_out=False,
+        cfg_path=cfg_path,
+        tla_path=tla_path,
     )

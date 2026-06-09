@@ -1,0 +1,16 @@
+Implement a single-leader replicated log with 3 nodes.
+
+Components:
+  1. Three nodes, each holding a sequence of integer log entries (entries
+     drawn from 1..3, max log length 3) and a "term" integer (0..2).
+  2. A leader election: exactly one node may have role "leader"; the
+     others are "followers". Leadership can transfer by incrementing
+     the term and electing a new leader.
+  3. An AppendEntry action: the leader extends its own log with one
+     entry; followers copy the leader's log on Replicate.
+
+Safety properties:
+  - Election safety: at most one leader per term.
+  - Log matching: any follower's log is a prefix of the current leader's
+    log (after Replicate stabilises).
+  - Term monotonicity: term never decreases.

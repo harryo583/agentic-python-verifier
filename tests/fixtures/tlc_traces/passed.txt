@@ -1,0 +1,20 @@
+TLC2 Version 2.18 of Day Month 20XX (rev: abcdef0)
+Running breadth-first search Model-Checking with fp 1 and seed -123 with 2 workers on 8 cores with 4096MB heap and 64MB offheap memory [pid: 12345] (Mac OS X 13.0 aarch64, OpenJDK 64-Bit Server VM 17.0.0 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file BoundedCounter.tla
+Parsing file /private/var/.../tla2tools.jar!/tla2sany/StandardModules/Integers.tla
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module BoundedCounter
+Starting... (2024-01-01 00:00:00)
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2024-01-01 00:00:01.
+Progress(2) at 2024-01-01 00:00:02: 11 states generated, 11 distinct states found, 0 states left on queue.
+Checking 1 branches of temporal properties for the complete state space with 11 total distinct states at (2024-01-01 00:00:02)
+Finished checking temporal properties in 00s at 2024-01-01 00:00:02
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.6E-19
+11 states generated, 11 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 11.
+Finished in 00s at (2024-01-01 00:00:02)

@@ -1,0 +1,28 @@
+---- MODULE Producer_Impl ----
+EXTENDS Naturals, Sequences
+
+CONSTANTS MaxItem, MaxLen
+
+BSeq(S) == UNION { [1..n -> S] : n \in 0..MaxLen }
+
+(* --algorithm Producer {
+  variables generated = << >>, next_item = 1;
+  {
+    Loop:
+      while (next_item <= MaxItem) {
+        generated := Append(generated, next_item);
+        next_item := next_item + 1;
+      }
+  }
+} *)
+
+Inv ==
+  /\ generated \in BSeq(1..MaxItem)
+  /\ next_item \in 1..(MaxItem+1)
+  /\ Len(generated) = next_item - 1
+  /\ \A i \in 1..Len(generated) : generated[i] = i
+  /\ pc \in {"Loop", "Done"}
+
+Property == next_item <= MaxItem + 1
+
+====

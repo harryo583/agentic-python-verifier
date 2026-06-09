@@ -1,0 +1,22 @@
+# Reference decomposition for the producer_consumer benchmark.
+# Used only for evaluation (decomposition adequacy metric), not driven into
+# the pipeline.
+
+parent_name: ProducerConsumer
+parent_role: Composes a bounded queue, a producer, and a consumer.
+modules:
+  - name: Queue
+    role: Bounded FIFO buffer of capacity 3.
+    state_variables: [items]
+    actions: [Enqueue, Dequeue]
+    invariant_sketch: queue length stays in 0..3
+  - name: Producer
+    role: Generates items 1..3 and enqueues them in order.
+    state_variables: [generated]
+    actions: [Produce]
+    invariant_sketch: generated count is monotonic and bounded by 3
+  - name: Consumer
+    role: Dequeues items and accumulates the running sum.
+    state_variables: [received, total]
+    actions: [Consume]
+    invariant_sketch: received is a FIFO prefix of generated

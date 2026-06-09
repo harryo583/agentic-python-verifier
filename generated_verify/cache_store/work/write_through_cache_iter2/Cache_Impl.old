@@ -1,0 +1,32 @@
+---- MODULE Cache_Impl ----
+EXTENDS Integers, TLC
+
+CONSTANTS Keys, Vals, Missing
+
+Domain == Vals \cup {Missing}
+
+(* --algorithm Cache
+variables
+  cache = [k \in Keys |-> Missing];
+
+begin
+  Loop:
+    while TRUE do
+      either
+        with k \in Keys, v \in Vals do
+          cache[k] := v;
+        end with;
+      or
+        with k \in Keys do
+          cache[k] := Missing;
+        end with;
+      or
+        skip;
+      end either;
+    end while;
+end algorithm; *)
+
+Inv == cache \in [Keys -> Domain]
+
+Property == cache \in [Keys -> Domain]
+====

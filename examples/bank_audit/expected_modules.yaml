@@ -1,0 +1,18 @@
+parent_name: BankAudit
+parent_role: Composes two accounts, the audit ledger, and a transfer action.
+modules:
+  - name: Account
+    role: Holds a non-negative balance bounded by 10.
+    state_variables: [balance]
+    actions: [Debit, Credit]
+    invariant_sketch: balance stays in 0..10
+  - name: Ledger
+    role: Append-only audit log of transfer entries.
+    state_variables: [entries]
+    actions: [Append]
+    invariant_sketch: ledger sum reconciles with current balances
+  - name: Transfer
+    role: Coordinates a debit + credit + ledger append atomically.
+    state_variables: [pending]
+    actions: [Transfer]
+    invariant_sketch: total balance is conserved

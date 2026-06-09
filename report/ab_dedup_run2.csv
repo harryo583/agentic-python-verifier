@@ -1,0 +1,10 @@
+slug,status,iterations,reroll_count,n_modules,n_impls,ref_status,per_module_pass,per_module_fail,trace_conform,trace_diverged,trace_inv_violated,trace_other,pipeline_seconds,total_tlc_seconds,llm_calls,input_tokens,output_tokens,cached_read_tokens,est_usd,error_note
+bank_audit,verified,4,0,2,2,passed,2,0,2,0,0,0,210.34,7.72,8,17211,17817,15236,1.9036,
+cache_store,unverified,6,0,2,2,error,0,2,0,0,0,0,236.1,0.81,7,13216,22804,17011,2.31,"failing_modules=Store,Cache"
+leader_log,verified,4,0,2,2,passed,2,0,2,0,0,0,211.79,8.93,8,16725,17706,15236,1.8882,
+producer_consumer,unverified,6,0,3,3,error,0,3,0,0,0,0,320.52,2.67,7,15915,30456,17011,3.0333,"failing_modules=BoundedQueue,Producer,Consumer"
+rw_lock,verified,5,0,2,2,passed,2,0,2,0,0,0,331.87,5.03,9,20578,32888,13039,3.347,
+two_phase_commit,crashed,0,0,0,0,,0,0,0,0,0,0,344.136323291983,0.0,0,0,0,0,0.0,"1 validation error for ModuleBundle
+modules
+  List should have at least 1 item after validation, not 0 [type=too_short, input_value=[], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.13/v/too_short"

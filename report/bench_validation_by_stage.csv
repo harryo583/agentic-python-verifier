@@ -1,0 +1,6 @@
+slug,stage,calls,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,latency_s,est_usd,degraded_calls
+two_phase_commit,planner,1,2449,476,0,0,7.349,0.072435,0
+two_phase_commit,synth_bundle,1,1273,3136,0,4666,30.48,0.341782,0
+two_phase_commit,repair_bundle,1,5325,3374,0,2469,31.288,0.379219,0
+two_phase_commit,refine_child,2,3218,2593,3163,3163,25.817,0.306796,0
+two_phase_commit,refine_parent,1,3660,1636,0,2217,17.79,0.219169,0

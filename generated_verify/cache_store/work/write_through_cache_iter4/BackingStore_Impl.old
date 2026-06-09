@@ -1,0 +1,28 @@
+---- MODULE BackingStore_Impl ----
+EXTENDS Integers, TLC
+
+CONSTANTS Keys, Vals, Missing
+
+Domain == Vals \cup {Missing}
+
+(* --algorithm BackingStore
+variables
+  store = [k \in Keys |-> Missing];
+
+begin
+  Loop:
+    while TRUE do
+      either
+        with k \in Keys, v \in Vals do
+          store[k] := v;
+        end with;
+      or
+        skip;
+      end either;
+    end while;
+end algorithm; *)
+
+Inv == store \in [Keys -> Domain]
+
+Property == store \in [Keys -> Domain]
+====

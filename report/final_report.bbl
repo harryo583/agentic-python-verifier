@@ -1,0 +1,54 @@
+\begin{thebibliography}{1}
+
+\bibitem{dafnycomp2025}
+{Anonymous}.
+\newblock {DafnyComp}: A compositional benchmark for {LLM}-driven verified code
+  generation.
+\newblock arXiv preprint arXiv:2509.23061, September 2025.
+\newblock Reports a collapse from \(\approx 58\%\) verification on
+  single-function tasks to 3.69\% on multi-function compositional tasks for
+  state-of-the-art LLMs.
+
+\bibitem{anthropic-claude}
+{Anthropic}.
+\newblock Claude {O}pus 4.7 and the {A}nthropic {P}ython {SDK}.
+\newblock \url{https://docs.anthropic.com/}, 2026.
+
+\bibitem{cirstea2024}
+Andra C\^{\i}rstea et~al.
+\newblock Trace conformance checking in {TLA+}.
+\newblock arXiv preprint arXiv:2404.16075, 2024.
+\newblock {\S}3.2 describes the per-trace replay encoding adopted by our Week-3
+  trace-conformance gate.
+
+\bibitem{lamport2002specifying}
+Leslie Lamport.
+\newblock {\em Specifying Systems: The {TLA+} Language and Tools for Hardware
+  and Software Engineers}.
+\newblock Addison-Wesley, 2002.
+
+\bibitem{lamport2009pluscal}
+Leslie Lamport.
+\newblock The {+CAL} algorithm language.
+\newblock In {\em Theoretical Aspects of Computing (ICTAC)}, volume 5684 of
+  {\em LNCS}, pages 36--60. Springer, 2009.
+
+\bibitem{icontract}
+{Parquery AG}.
+\newblock \texttt{icontract}: Design-by-contract decorators for {Python}.
+\newblock Software, \url{https://github.com/Parquery/icontract}, 2018--2026.
+
+\bibitem{hillelwayne-tla-adt}
+Hillel Wayne.
+\newblock {TLA+} for {ADT}s: Refinement through named instances.
+\newblock Blog post, \url{https://www.hillelwayne.com/post/tla-adt/}, 2019.
+\newblock Pattern for composing TLA+ modules via \texttt{INSTANCE WITH}
+  substitutions used as the basis for this pipeline's refinement obligation.
+
+\bibitem{yu1999tlc}
+Yuan Yu, Panagiotis Manolios, and Leslie Lamport.
+\newblock Model checking {TLA+} specifications.
+\newblock In {\em Correct Hardware Design and Verification Methods (CHARME)},
+  volume 1703 of {\em LNCS}, pages 54--66. Springer, 1999.
+
+\end{thebibliography}

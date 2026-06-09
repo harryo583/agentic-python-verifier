@@ -1,0 +1,33 @@
+---- MODULE FrontCache_Impl ----
+EXTENDS Naturals, FiniteSets, Sequences, TLC
+
+CONSTANTS Keys, Vals, Missing
+
+(* --algorithm FrontCache
+variables
+  cache = [k \in {} |-> 0];
+begin
+  Loop:
+    while TRUE do
+      either
+        with k \in Keys, v \in Vals do
+          cache := [x \in (DOMAIN cache) \cup {k} |-> IF x = k THEN v ELSE cache[x]];
+        end with;
+      or
+        with k \in Keys do
+          cache := [x \in (DOMAIN cache) \ {k} |-> cache[x]];
+        end with;
+      or
+        skip;
+      end either;
+    end while;
+end algorithm; *)
+
+TypeOK ==
+  /\ DOMAIN cache \subseteq Keys
+  /\ \A k \in DOMAIN cache : cache[k] \in Vals
+
+Inv == TypeOK
+Property == TypeOK
+
+====

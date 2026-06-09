@@ -1,0 +1,32 @@
+---- MODULE Consumer_Impl ----
+EXTENDS Naturals, Sequences
+
+CONSTANT MaxLen
+
+BSeq(S) == UNION { [1..n -> S] : n \in 0..MaxLen }
+
+RECURSIVE SumSeq(_)
+SumSeq(s) == IF s = << >> THEN 0 ELSE Head(s) + SumSeq(Tail(s))
+
+(* --algorithm Consumer {
+  variables received = << >>, sum = 0;
+  {
+    Loop:
+      while (Len(received) < MaxLen) {
+        with (v \in 1..10) {
+          received := Append(received, v);
+          sum := sum + v;
+        }
+      }
+  }
+} *)
+
+Inv ==
+  /\ received \in BSeq(1..10)
+  /\ sum \in 0..(10 * MaxLen)
+  /\ sum = SumSeq(received)
+  /\ pc \in {"Loop", "Done"}
+
+Property == sum = SumSeq(received)
+
+====

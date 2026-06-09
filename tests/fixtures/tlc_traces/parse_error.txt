@@ -1,0 +1,10 @@
+TLC2 Version 2.18 of Day Month 20XX (rev: abcdef0)
+Parsing file BoundedCounter.tla
+*** Parse Error ***
+
+Was expecting "==== or more Module Body"
+Encountered "Inv" at line 12, column 1.
+
+Residual stack trace follows:
+Module body starting at line 4, column 1.
+Module definition starting at line 1, column 1.

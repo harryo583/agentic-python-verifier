@@ -1,0 +1,16 @@
+Implement a write-through cache backed by a key-value store.
+
+Components:
+  1. A backing store mapping keys (from {"a", "b", "c"}) to integer values
+     (in 0..5). Reads return the value or a missing marker; writes overwrite.
+  2. A cache in front of the store with the same key/value domain. On read:
+     return the cache entry if present, else fetch from the store and
+     populate the cache. On write: update both the cache and the store
+     atomically.
+
+Safety properties:
+  - Read-after-write consistency: after Write(k, v), the next Read(k)
+    returns v whether it goes through the cache or directly to the store.
+  - The cache never holds a value for k that disagrees with the store's
+    value for k (cache entries are a subset of store entries that match).
+  - The store contains only keys from {"a","b","c"} and values in 0..5.

@@ -1,0 +1,60 @@
+---- MODULE Consumer_Impl ----
+EXTENDS Naturals, Sequences
+
+SumSeq[s \in Seq(1..10)] ==
+  IF s = << >> THEN 0 ELSE Head(s) + SumSeq[Tail(s)]
+
+(* --algorithm Consumer
+variables received = << >>, sum = 0;
+begin
+  Loop:
+    while TRUE do
+      with v \in 1..10 do
+        received := Append(received, v);
+        sum := sum + v;
+      end with;
+    end while;
+  Finish:
+    skip;
+end algorithm; *)
+\* BEGIN TRANSLATION (chksum(pcal) = "adc3561c" /\ chksum(tla) = "1f78faf9")
+VARIABLES received, sum, pc
+
+vars == << received, sum, pc >>
+
+Init == (* Global variables *)
+        /\ received = << >>
+        /\ sum = 0
+        /\ pc = "Loop"
+
+Loop == /\ pc = "Loop"
+        /\ \E v \in 1..10:
+             /\ received' = Append(received, v)
+             /\ sum' = sum + v
+        /\ pc' = "Loop"
+
+Finish == /\ pc = "Finish"
+          /\ TRUE
+          /\ pc' = "Done"
+          /\ UNCHANGED << received, sum >>
+
+(* Allow infinite stuttering to prevent deadlock on termination. *)
+Terminating == pc = "Done" /\ UNCHANGED vars
+
+Next == Loop \/ Finish
+           \/ Terminating
+
+Spec == Init /\ [][Next]_vars
+
+Termination == <>(pc = "Done")
+
+\* END TRANSLATION 
+
+Inv ==
+  /\ sum = SumSeq[received]
+  /\ \A i \in 1..Len(received) : received[i] \in 1..10
+  /\ pc \in {"Loop", "Finish", "Done"}
+
+Property == sum = SumSeq[received]
+
+====

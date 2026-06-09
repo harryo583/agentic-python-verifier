@@ -1,0 +1,105 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{dafnycomp2025}
+\citation{lamport2002specifying}
+\citation{hillelwayne-tla-adt}
+\citation{yu1999tlc}
+\citation{lamport2009pluscal}
+\citation{icontract}
+\citation{cirstea2024}
+\citation{lamport2002specifying}
+\citation{lamport2009pluscal}
+\citation{yu1999tlc}
+\citation{hillelwayne-tla-adt}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Background and Related Work}{1}{section.2}\protected@file@percent }
+\newlabel{sec:background}{{2}{1}{Background and Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{TLA\textsuperscript  {+}{}, PlusCal, TLC.}{1}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Refinement composition.}{1}{section*.2}\protected@file@percent }
+\citation{dafnycomp2025}
+\citation{cirstea2024}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces The compositional pipeline. Arrows are typed data flow; the repair loop is the only control-flow back-edge.}}{2}{figure.1}\protected@file@percent }
+\newlabel{fig:pipeline}{{1}{2}{The compositional pipeline. Arrows are typed data flow; the repair loop is the only control-flow back-edge}{figure.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{DafnyComp.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trace conformance.}{2}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Out of scope.}{2}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Approach}{2}{section.3}\protected@file@percent }
+\newlabel{sec:approach}{{3}{2}{Approach}{section.3}{}}
+\citation{hillelwayne-tla-adt}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces The four proof obligations and their TLC encodings.}}{3}{table.1}\protected@file@percent }
+\newlabel{tbl:obligations}{{1}{3}{The four proof obligations and their TLC encodings}{table.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Decomposition}{3}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Bundled Co-Synthesis}{3}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Four proof obligations}{3}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Counterexample-driven repair}{3}{subsection.3.4}\protected@file@percent }
+\citation{cirstea2024}
+\citation{anthropic-claude}
+\newlabel{lst:refinement}{{1}{4}{Generated \texttt {Refinement\_Parent.tla} (simplified). The \texttt {const\_clauses} and \texttt {var\_clauses} come from the abstract module's \texttt {CONSTANTS} declaration and the implementation's \texttt {abstraction\_map}, respectively}{lstlisting.1}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {1}Generated \texttt  {Refinement\_Parent.tla} (simplified). The \texttt  {const\_clauses} and \texttt  {var\_clauses} come from the abstract module's \texttt  {CONSTANTS} declaration and the implementation's \texttt  {abstraction\_map}, respectively.}{4}{lstlisting.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Refinement to \texttt  {icontract} Python}{4}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Trace conformance (advisory)}{4}{subsection.3.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Implementation}{4}{section.4}\protected@file@percent }
+\newlabel{sec:impl}{{4}{4}{Implementation}{section.4}{}}
+\newlabel{lst:trace}{{2}{5}{Generated \texttt {Trace\_<Name>.tla}, replaying one execution against the child's abstract spec}{lstlisting.2}{}}
+\@writefile{lol}{\contentsline {lstlisting}{\numberline {2}Generated \texttt  {Trace\_<Name>.tla}, replaying one execution against the child's abstract spec.}{5}{lstlisting.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Repository layout.}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:layout}{{2}{5}{Repository layout}{figure.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Evaluation}{5}{section.5}\protected@file@percent }
+\newlabel{sec:eval}{{5}{5}{Evaluation}{section.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, write-through caches, audit ledgers, distributed commit, leader election, and locking.}}{6}{table.2}\protected@file@percent }
+\newlabel{tbl:bench}{{2}{6}{Benchmark suite. The six compositional benchmarks were hand-authored to cover producer/consumer queues, write-through caches, audit ledgers, distributed commit, leader election, and locking}{table.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Offline test suite}{6}{subsection.5.1}\protected@file@percent }
+\newlabel{ssec:tests}{{5.1}{6}{Offline test suite}{subsection.5.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Benchmark catalog}{6}{subsection.5.2}\protected@file@percent }
+\newlabel{ssec:bench-catalog}{{5.2}{6}{Benchmark catalog}{subsection.5.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Per-benchmark detail}{6}{subsection.5.3}\protected@file@percent }
+\newlabel{ssec:bench-detail}{{5.3}{6}{Per-benchmark detail}{subsection.5.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Verified on the first attempt (4 of 6).}{6}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Required a reroll (2 of 6).}{6}{section*.7}\protected@file@percent }
+\citation{dafnycomp2025}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Per-benchmark verification trajectories. Columns: repair iteration count, refinement-obligation status, per-module passes/fails, per-child trace outcomes (conform / diverged / invariant-violated), total pipeline wall time, total TLC time. Shaded rows are the reroll attempts that flipped a previously failing benchmark. Source CSVs: \texttt  {report/bench\_results.csv}, \texttt  {report/bench\_rerun.csv}, \texttt  {report/bench\_rerun\_2.csv}.}}{7}{table.3}\protected@file@percent }
+\newlabel{tbl:results}{{3}{7}{Per-benchmark verification trajectories. Columns: repair iteration count, refinement-obligation status, per-module passes/fails, per-child trace outcomes (conform / diverged / invariant-violated), total pipeline wall time, total TLC time. Shaded rows are the reroll attempts that flipped a previously failing benchmark. Source CSVs: \texttt {report/bench\_results.csv}, \texttt {report/bench\_rerun.csv}, \texttt {report/bench\_rerun\_2.csv}}{table.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Legacy baselines.}{7}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Aggregate results}{7}{subsection.5.4}\protected@file@percent }
+\newlabel{ssec:bench-agg}{{5.4}{7}{Aggregate results}{subsection.5.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Efficiency: instrumentation and a controlled A/B}{7}{subsection.5.5}\protected@file@percent }
+\newlabel{ssec:reroll}{{5.5}{7}{Efficiency: instrumentation and a controlled A/B}{subsection.5.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Per-stage cost (baseline condition, mean over 16 verified/unverified runs). Estimated USD uses placeholder Opus prices; the \emph  {relative} split is the point. History dedup halves \texttt  {repair\_bundle} input tokens (17.5k\,$\to $\,8.6k).}}{8}{table.4}\protected@file@percent }
+\newlabel{tbl:cost}{{4}{8}{Per-stage cost (baseline condition, mean over 16 verified/unverified runs). Estimated USD uses placeholder Opus prices; the \emph {relative} split is the point. History dedup halves \texttt {repair\_bundle} input tokens (17.5k\,$\to $\,8.6k)}{table.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Controlled efficiency A/B (one lever each, default otherwise; the credit-exhausted reroll run is excluded). The rate spread is within run-to-run noise; dedup is the only consistent (modest) cost lever.}}{8}{table.5}\protected@file@percent }
+\newlabel{tbl:ab}{{5}{8}{Controlled efficiency A/B (one lever each, default otherwise; the credit-exhausted reroll run is excluded). The rate spread is within run-to-run noise; dedup is the only consistent (modest) cost lever}{table.5}{}}
+\citation{dafnycomp2025}
+\citation{hillelwayne-tla-adt}
+\citation{cirstea2024}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}Qualitative observations}{9}{subsection.5.6}\protected@file@percent }
+\newlabel{ssec:qual}{{5.6}{9}{Qualitative observations}{subsection.5.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Limitations and Future Work}{9}{section.6}\protected@file@percent }
+\newlabel{sec:limits}{{6}{9}{Limitations and Future Work}{section.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Limitations.}{9}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Future work.}{9}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{9}{section.7}\protected@file@percent }
+\newlabel{sec:concl}{{7}{9}{Conclusion}{section.7}{}}
+\bibstyle{plain}
+\bibdata{refs}
+\bibcite{dafnycomp2025}{1}
+\bibcite{anthropic-claude}{2}
+\bibcite{cirstea2024}{3}
+\bibcite{lamport2002specifying}{4}
+\bibcite{lamport2009pluscal}{5}
+\bibcite{icontract}{6}
+\bibcite{hillelwayne-tla-adt}{7}
+\bibcite{yu1999tlc}{8}
+\gdef \@abspage@last{10}
