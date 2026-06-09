@@ -42,8 +42,18 @@ class FakeBlock:
 
 
 @dataclass
+class FakeUsage:
+    input_tokens: int = 120
+    output_tokens: int = 60
+    cache_read_input_tokens: int = 40
+    cache_creation_input_tokens: int = 0
+
+
+@dataclass
 class FakeMessage:
     content: list[FakeBlock]
+    model: str = "claude-opus-4-7"
+    usage: Any = None
 
 
 class FakeAnthropic:
@@ -609,6 +619,265 @@ def test_compositional_pipeline_runtime_smoke_test_failure(tmp_path: Path):
     assert result.trace_skipped_reason == "refinement_failed"
     # Note must explain what blew up.
     assert "AttributeError" in result.note or "Capacity" in result.note
+
+
+def test_reroll_after_repairs_per_chain_budget(tmp_path: Path):
+    """With reroll enabled and repairs_per_chain=1, each chain is abandoned after
+    one failed verify and re-proposed from scratch (no repair calls)."""
+
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b1", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b2", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b3", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    settings.enable_reroll = True
+    settings.repairs_per_chain = 1
+    verifier = ScriptedVerifier(
+        settings,
+        [_consec_failure_proof(), _consec_failure_proof(), _all_passing_proof()],
+    )
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="x", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "verified"
+    assert result.iterations == 3
+    assert result.reroll_count == 2
+    assert len(verifier.calls) == 3
+    # LLM calls: plan + 3 propose_bundle (no repairs) + 2 children + app = 7.
+    names = [c["tool_choice"]["name"] for c in fake.calls]
+    assert names.count("propose_module_bundle") == 3
+    assert names.count("repair_module_bundle") == 0
+
+
+def test_reroll_on_stuck_fingerprint(tmp_path: Path):
+    """With repairs_per_chain=0 (chain-length cap off), a chain still rerolls as
+    soon as the same failure fingerprint repeats (no progress)."""
+
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b1", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("repair_module_bundle", "tu_r1", _REPAIRED_BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b2", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    settings.enable_reroll = True
+    settings.repairs_per_chain = 0  # only reroll on a stuck fingerprint
+    # Two identical failures (same fingerprint) then a pass after the reroll.
+    verifier = ScriptedVerifier(
+        settings,
+        [_consec_failure_proof(), _consec_failure_proof(), _all_passing_proof()],
+    )
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="x", max_iterations=4),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "verified"
+    assert result.reroll_count == 1
+    assert result.iterations == 3
+    names = [c["tool_choice"]["name"] for c in fake.calls]
+    # One repair happened (iter1->iter2), then the repeat triggered a reroll.
+    assert names.count("repair_module_bundle") == 1
+    assert names.count("propose_module_bundle") == 2
+
+
+def test_reroll_disabled_by_default_keeps_repairing(tmp_path: Path):
+    """Default (reroll off): identical failures keep repairing in one chain."""
+
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b1", _BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("repair_module_bundle", "tu_r1", _REPAIRED_BUNDLE_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)  # enable_reroll defaults to False
+    verifier = ScriptedVerifier(
+        settings, [_consec_failure_proof(), _consec_failure_proof()]
+    )
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="x", max_iterations=2),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "unverified"
+    assert result.reroll_count == 0
+    names = [c["tool_choice"]["name"] for c in fake.calls]
+    assert names.count("propose_module_bundle") == 1  # never rerolled
+    assert names.count("repair_module_bundle") == 1
+
+
+def test_preflight_rejects_reserved_label_without_running_tlc(tmp_path: Path):
+    """With enable_preflight, a bundle whose impl uses a reserved PlusCal label
+    is rejected before TLC runs; the verifier is only called on the repaired
+    (clean) bundle."""
+
+    reserved_bundle = {
+        **_BUNDLE_INPUT,
+        "modules": [
+            _BUNDLE_INPUT["modules"][0],  # Queue_Abs
+            {
+                **_BUNDLE_INPUT["modules"][1],  # Queue_Impl
+                "pluscal_source": (
+                    "---- MODULE Queue_Impl ----\n"
+                    "(* --algorithm Q\nbegin\n  Done:\n    skip;\n"
+                    "end algorithm; *)\n===="
+                ),
+            },
+            _BUNDLE_INPUT["modules"][2],  # Lock_Abs
+            _BUNDLE_INPUT["modules"][3],  # Lock_Impl
+        ],
+    }
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b1", reserved_bundle)]),
+            FakeMessage(content=[_block("repair_module_bundle", "tu_r1", _REPAIRED_BUNDLE_INPUT)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)
+    settings.enable_preflight = True
+    # Only ONE scripted proof: the verifier must run exactly once (iter 2),
+    # since iter 1 is rejected by pre-flight without calling TLC.
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="x", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "verified"
+    assert result.iterations == 2
+    assert len(verifier.calls) == 1  # TLC skipped on the rejected iteration
+    names = [c["tool_choice"]["name"] for c in fake.calls]
+    assert names.count("repair_module_bundle") == 1
+    # The repair received the lint diagnostic (promoted to the toolchain header).
+    repair_call = next(
+        c for c in fake.calls if c["tool_choice"]["name"] == "repair_module_bundle"
+    )
+    feedback = repair_call["messages"][-1]["content"][0]["content"]
+    assert "TOOLCHAIN ERRORS" in feedback
+    assert "reserved PlusCal label 'Done:'" in feedback
+
+
+def test_preflight_disabled_lets_reserved_label_reach_verifier(tmp_path: Path):
+    """Default (preflight off): the linter never runs, so the reserved-label
+    bundle reaches the verifier unchanged."""
+
+    reserved_bundle = {
+        **_BUNDLE_INPUT,
+        "modules": [
+            _BUNDLE_INPUT["modules"][0],
+            {
+                **_BUNDLE_INPUT["modules"][1],
+                "pluscal_source": (
+                    "---- MODULE Queue_Impl ----\n(* --algorithm Q\nbegin\n"
+                    "  Done:\n    skip;\nend algorithm; *)\n===="
+                ),
+            },
+            _BUNDLE_INPUT["modules"][2],
+            _BUNDLE_INPUT["modules"][3],
+        ],
+    }
+    client, _ = _make_client(
+        [
+            FakeMessage(content=[_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            FakeMessage(content=[_block("propose_module_bundle", "tu_b1", reserved_bundle)]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            FakeMessage(content=[_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            FakeMessage(content=[_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    settings = _settings(tmp_path)  # enable_preflight defaults to False
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="x", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "verified"
+    assert result.iterations == 1
+    assert len(verifier.calls) == 1  # reserved bundle went straight to TLC
+
+
+def test_pipeline_populates_usage_summary_with_stage_tags(tmp_path: Path):
+    """End-to-end check that #0 instrumentation flows through the pipeline:
+    a ledger-backed client records every stage, _finalize attaches the summary,
+    and the per-stage breakdown carries the right stage tags."""
+
+    from src.llm.usage import UsageLedger
+
+    def _um(blocks: list[FakeBlock]) -> FakeMessage:
+        return FakeMessage(content=blocks, usage=FakeUsage())
+
+    fake = FakeAnthropic(
+        [
+            _um([_block("propose_decomposition", "tu_plan", _PLAN_INPUT)]),
+            _um([_block("propose_module_bundle", "tu_bundle", _BUNDLE_INPUT)]),
+            _um([_block("emit_python_module_for_bundle", "tu_q", _emit_child_input("Queue"))]),
+            _um([_block("emit_python_module_for_bundle", "tu_l", _emit_child_input("Lock"))]),
+            _um([_block("emit_python_app_for_bundle", "tu_app", _APP_INPUT)]),
+        ]
+    )
+    ledger = UsageLedger()
+    client = AnthropicClient(
+        api_key="x", model="claude-opus-4-7", client=fake, ledger=ledger
+    )
+    settings = _settings(tmp_path)
+    verifier = ScriptedVerifier(settings, [_all_passing_proof()])
+
+    result = run_compositional_pipeline(
+        TaskRequest(prompt="q+lock", max_iterations=3),
+        settings,
+        client=client,
+        verifier=verifier,
+        trace_gate=StubTraceGate(),
+    )
+
+    assert result.status == "verified"
+    assert result.usage is not None
+    assert result.usage.total_calls == 5
+    assert result.usage.degraded_calls == 0
+    assert result.usage.input_tokens == 5 * 120
+    assert result.usage.est_usd > 0.0
+    stages = {s.stage for s in result.usage.by_stage}
+    assert {"planner", "synth_bundle", "refine_child", "refine_parent"} <= stages
 
 
 def test_compositional_pipeline_skip_trace_gate_flag(tmp_path: Path):

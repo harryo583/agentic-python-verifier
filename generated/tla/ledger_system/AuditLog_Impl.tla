@@ -3,25 +3,21 @@ EXTENDS Naturals, Sequences, TLC
 
 CONSTANTS Accts, Amounts, MaxLogLen
 
-Entry == [from: Accts, to: Accts, amount: Amounts]
-
-BoundedLog == UNION { [1..n -> Entry] : n \in 0..MaxLogLen }
-
 (* --algorithm AuditLog
 variables log = << >>;
 begin
   Loop:
     while TRUE do
-      with f \in Accts, t \in Accts, amt \in Amounts do
-        await f # t;
+      with from \in Accts, to \in Accts, amt \in Amounts do
+        await from # to;
         await Len(log) < MaxLogLen;
-        log := Append(log, [from |-> f, to |-> t, amount |-> amt]);
+        log := Append(log, [from |-> from, to |-> to, amount |-> amt]);
       end with;
     end while;
   Finish:
     skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "a12d1c0a" /\ chksum(tla) = "7b746968")
+\* BEGIN TRANSLATION (chksum(pcal) = "e92fca7" /\ chksum(tla) = "6be80ada")
 VARIABLES log, pc
 
 vars == << log, pc >>
@@ -31,12 +27,12 @@ Init == (* Global variables *)
         /\ pc = "Loop"
 
 Loop == /\ pc = "Loop"
-        /\ \E f \in Accts:
-             \E t \in Accts:
+        /\ \E from \in Accts:
+             \E to \in Accts:
                \E amt \in Amounts:
-                 /\ f # t
+                 /\ from # to
                  /\ Len(log) < MaxLogLen
-                 /\ log' = Append(log, [from |-> f, to |-> t, amount |-> amt])
+                 /\ log' = Append(log, [from |-> from, to |-> to, amount |-> amt])
         /\ pc' = "Loop"
 
 Finish == /\ pc = "Finish"
@@ -56,12 +52,16 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-TypeOK == log \in BoundedLog
+EntryT == [from: Accts, to: Accts, amount: Amounts]
+
+BoundedSeq == UNION { [1..n -> EntryT] : n \in 0..MaxLogLen }
+
+TypeOK == log \in BoundedSeq
 
 WellFormed ==
-  \A i \in 1..Len(log) :
+  \A i \in 1..Len(log):
+    /\ log[i].amount \in Amounts
     /\ log[i].from # log[i].to
-    /\ log[i].amount > 0
 
 Inv ==
   /\ TypeOK
@@ -69,5 +69,4 @@ Inv ==
   /\ pc \in {"Loop", "Finish", "Done"}
 
 Property == WellFormed
-
 ====

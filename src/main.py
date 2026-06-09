@@ -14,6 +14,7 @@ The CLI picks one based on the ``--compositional`` / ``--legacy`` flag.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -27,11 +28,13 @@ from src.agents.refine_agent import (
     smoke_test_package,
     trace_shim_source,
 )
-from src.agents.synth_agent import SynthesisAgent
+from src.agents.synth_agent import SynthesisAgent, _classify_error_note
 from src.agents.trace_gate import TraceGate
 from src.agents.verifier import Verifier
 from src.config import Settings, get_settings, require_runtime_settings
+from src.formal.preflight import lint_bundle, preflight_proof
 from src.llm.anthropic_client import AnthropicClient
+from src.llm.usage import UsageLedger
 from src.models.bundle import (
     CompositionalProofBundle,
     ModuleBundle,
@@ -69,7 +72,9 @@ def run_pipeline(
     ensure_directory(settings.python_dir)
     ensure_directory(settings.work_dir)
 
+    ledger: Optional[UsageLedger]
     if client is None:
+        ledger = UsageLedger()
         tertiary = None
         if settings.openai_api_key:
             from src.llm.openai_adapter import OpenAIAdapter
@@ -83,9 +88,24 @@ def run_pipeline(
             model=settings.model,
             fallback_model=settings.fallback_model,
             tertiary=tertiary,
+            ledger=ledger,
         )
+    else:
+        ledger = getattr(client, "ledger", None)
+
+    def _finalize(result: PipelineResult) -> PipelineResult:
+        if ledger is not None:
+            result.usage = ledger.summary()
+        return result
+
     verifier = verifier or Verifier(settings)
-    synth = SynthesisAgent(client)
+    synth_few_shot, repair_few_shot = _few_shot_blocks(settings)
+    synth = SynthesisAgent(
+        client,
+        repair_history_mode=settings.repair_history_mode,
+        synth_few_shot=synth_few_shot,
+        repair_few_shot=repair_few_shot,
+    )
     refine = RefineAgent(client)
 
     LOGGER.info("Synthesising initial proposal...")
@@ -127,24 +147,24 @@ def run_pipeline(
 
     if not bundle.all_passed:
         LOGGER.error("Pipeline exhausted %d iterations without verification.", iterations)
-        return PipelineResult(
+        return _finalize(PipelineResult(
             status="unverified",
             iterations=iterations,
             proposal=proposal,
             bundle=bundle,
-        )
+        ))
 
     LOGGER.info("Refining verified PlusCal into Python...")
     try:
         refined: RefinedModule = refine.to_python(proposal)
     except RefineSyntaxError as exc:
         LOGGER.error("Refinement produced invalid Python: %s", exc)
-        return PipelineResult(
+        return _finalize(PipelineResult(
             status="unverified",
             iterations=iterations,
             proposal=proposal,
             bundle=bundle,
-        )
+        ))
 
     tla_path = settings.tla_dir / f"{proposal.slug}.tla"
     python_path = settings.python_dir / f"{proposal.slug}.py"
@@ -155,14 +175,14 @@ def run_pipeline(
         write_text(tla_path, proposal.pluscal)
     write_text(python_path, refined.python_module)
 
-    return PipelineResult(
+    return _finalize(PipelineResult(
         status="verified",
         iterations=iterations,
         proposal=proposal,
         bundle=bundle,
         tla_path=tla_path,
         python_path=python_path,
-    )
+    ))
 
 
 def run_compositional_pipeline(
@@ -192,7 +212,9 @@ def run_compositional_pipeline(
     ensure_directory(settings.python_dir)
     ensure_directory(settings.work_dir)
 
+    ledger: Optional[UsageLedger]
     if client is None:
+        ledger = UsageLedger()
         tertiary = None
         if settings.openai_api_key:
             from src.llm.openai_adapter import OpenAIAdapter
@@ -206,10 +228,27 @@ def run_compositional_pipeline(
             model=settings.model,
             fallback_model=settings.fallback_model,
             tertiary=tertiary,
+            ledger=ledger,
         )
+    else:
+        ledger = getattr(client, "ledger", None)
+
+    def _finalize(
+        result: CompositionalPipelineResult,
+    ) -> CompositionalPipelineResult:
+        if ledger is not None:
+            result.usage = ledger.summary()
+        return result
+
     verifier = verifier or Verifier(settings)
     planner = PlannerAgent(client)
-    synth = SynthesisAgent(client)
+    synth_few_shot, repair_few_shot = _few_shot_blocks(settings)
+    synth = SynthesisAgent(
+        client,
+        repair_history_mode=settings.repair_history_mode,
+        synth_few_shot=synth_few_shot,
+        repair_few_shot=repair_few_shot,
+    )
     refine = RefineAgent(client)
 
     LOGGER.info("Decomposing task into modules...")
@@ -217,12 +256,12 @@ def run_compositional_pipeline(
         plan = planner.decompose(task)
     except DecompositionError as exc:
         LOGGER.error("Planner failed: %s", exc)
-        return CompositionalPipelineResult(
+        return _finalize(CompositionalPipelineResult(
             status="planner_failed",
             iterations=0,
             note=str(exc),
             trace_skipped_reason="planner_failed",
-        )
+        ))
 
     LOGGER.info(
         "Plan: parent=%s, %d module(s).",
@@ -230,44 +269,20 @@ def run_compositional_pipeline(
         len(plan.modules),
     )
 
-    LOGGER.info("Synthesising initial bundle...")
-    bundle, history, tool_use_id = synth.propose_bundle(task, plan)
+    outcome = _synthesize_and_verify(
+        task=task,
+        plan=plan,
+        settings=settings,
+        synth=synth,
+        verifier=verifier,
+    )
+    bundle = outcome.bundle
+    proof = outcome.proof
+    iterations = outcome.iterations
+    reroll_count = outcome.reroll_count
+    last_work_dir = outcome.last_work_dir
 
-    proof: CompositionalProofBundle | None = None
-    iterations = 0
-    last_work_dir: Path | None = None
-    for i in range(task.max_iterations):
-        iterations = i + 1
-        LOGGER.info(
-            "Iteration %d: verifying bundle %s...", iterations, bundle.slug
-        )
-        work_dir = settings.work_dir / f"{bundle.slug}_iter{i}"
-        proof = verifier.check_bundle(bundle, work_dir)
-        last_work_dir = work_dir
-        if proof.all_passed:
-            LOGGER.info(
-                "All compositional obligations passed at iteration %d.", iterations
-            )
-            break
-
-        failing_mods = proof.failing_modules()
-        ref_status = proof.refinement.status
-        LOGGER.warning(
-            "Iteration %d failed: modules=%s, refinement=%s. Requesting repair...",
-            iterations,
-            failing_mods,
-            ref_status,
-        )
-        if i == task.max_iterations - 1:
-            break
-
-        bundle, history, tool_use_id = synth.repair_bundle(
-            history=history,
-            proof=proof,
-            last_bundle=bundle,
-            previous_tool_use_id=tool_use_id,
-        )
-
+    assert bundle is not None
     assert proof is not None
     assert last_work_dir is not None
 
@@ -276,29 +291,31 @@ def run_compositional_pipeline(
             "Compositional pipeline exhausted %d iterations without verification.",
             iterations,
         )
-        return CompositionalPipelineResult(
+        return _finalize(CompositionalPipelineResult(
             status="unverified",
             iterations=iterations,
+            reroll_count=reroll_count,
             plan=plan,
             bundle=bundle,
             proof=proof,
             trace_skipped_reason="package_unverified",
-        )
+        ))
 
     LOGGER.info("Refining verified bundle into Python package...")
     try:
         package = refine.to_python_package(bundle)
     except RefineSyntaxError as exc:
         LOGGER.error("Refinement produced invalid Python: %s", exc)
-        return CompositionalPipelineResult(
+        return _finalize(CompositionalPipelineResult(
             status="refinement_failed",
             iterations=iterations,
+            reroll_count=reroll_count,
             plan=plan,
             bundle=bundle,
             proof=proof,
             note=str(exc),
             trace_skipped_reason="refinement_failed",
-        )
+        ))
 
     tla_out_dir = settings.tla_dir / bundle.slug
     py_out_dir = settings.python_dir / bundle.slug
@@ -317,9 +334,10 @@ def run_compositional_pipeline(
         )
     except RefineRuntimeError as exc:
         LOGGER.error("Emitted package crashed at runtime: %s", exc)
-        return CompositionalPipelineResult(
+        return _finalize(CompositionalPipelineResult(
             status="refinement_failed",
             iterations=iterations,
+            reroll_count=reroll_count,
             plan=plan,
             bundle=bundle,
             proof=proof,
@@ -327,7 +345,7 @@ def run_compositional_pipeline(
             python_dir=py_out_dir,
             note=str(exc),
             trace_skipped_reason="refinement_failed",
-        )
+        ))
 
     traces: dict[str, TraceResult] = {}
     trace_skipped_reason: Optional[str] = None
@@ -349,9 +367,10 @@ def run_compositional_pipeline(
                 result.trace_length,
             )
 
-    return CompositionalPipelineResult(
+    return _finalize(CompositionalPipelineResult(
         status="verified",
         iterations=iterations,
+        reroll_count=reroll_count,
         plan=plan,
         bundle=bundle,
         proof=proof,
@@ -359,7 +378,195 @@ def run_compositional_pipeline(
         python_dir=py_out_dir,
         traces=traces,
         trace_skipped_reason=trace_skipped_reason,
+    ))
+
+
+def _few_shot_blocks(settings: Settings) -> tuple[str, str]:
+    """Render the synth/repair few-shot exemplar blocks (empty when disabled)."""
+
+    if not settings.few_shot_enabled:
+        return "", ""
+    from src.llm.few_shot import (
+        load_exemplars,
+        render_repair_few_shot,
+        render_synth_few_shot,
     )
+
+    exemplars = load_exemplars(settings.exemplar_pool_dir)
+    if not exemplars:
+        LOGGER.warning(
+            "few_shot_enabled but no exemplars found under %s; running zero-shot.",
+            settings.exemplar_pool_dir,
+        )
+    else:
+        LOGGER.info(
+            "Few-shot enabled: %d exemplar(s) from %s.",
+            len(exemplars),
+            settings.exemplar_pool_dir,
+        )
+    return render_synth_few_shot(exemplars), render_repair_few_shot(exemplars)
+
+
+@dataclass(slots=True)
+class _SynthOutcome:
+    """Result of the synth + verify (+ reroll) loop, before refinement."""
+
+    bundle: ModuleBundle
+    proof: CompositionalProofBundle
+    iterations: int
+    reroll_count: int
+    last_work_dir: Path
+
+
+def _proof_fingerprint(
+    proof: CompositionalProofBundle,
+) -> frozenset[tuple[str, str, str, str]]:
+    """Identify *what* failed, so a repeated failure can be detected as "stuck".
+
+    Covers error/timeout obligations (``counterexample is None``) — the
+    documented stuck cases (reserved PlusCal labels, refinement SANY errors)
+    never produce a counterexample, so a CE-only fingerprint would never fire.
+    Each failing obligation contributes ``(module, obligation, status,
+    descriptor)`` where the descriptor is the violated predicate (for a CE) or
+    the classified toolchain error kind + first note line (for an error).
+    """
+
+    def descriptor(result: ObligationResult) -> str:
+        if result.counterexample is not None:
+            return f"ce:{result.counterexample.violated_predicate}"
+        note = result.note or ""
+        first_line = note.splitlines()[0] if note else ""
+        return f"err:{_classify_error_note(note)}:{first_line}"
+
+    items: set[tuple[str, str, str, str]] = set()
+    for mod_name, pb in proof.per_module.items():
+        for result in (pb.init, pb.consec, pb.property):
+            if result.passed:
+                continue
+            items.add(
+                (mod_name, str(result.obligation), str(result.status), descriptor(result))
+            )
+    if not proof.refinement.passed:
+        ref = proof.refinement
+        items.add(
+            ("refinement", str(ref.obligation), str(ref.status), descriptor(ref))
+        )
+    return frozenset(items)
+
+
+def _synthesize_and_verify(
+    *,
+    task: TaskRequest,
+    plan: "DecompositionPlan",
+    settings: Settings,
+    synth: SynthesisAgent,
+    verifier: Verifier,
+) -> _SynthOutcome:
+    """Propose a bundle and drive the repair loop, optionally rerolling.
+
+    Default (``enable_reroll=False``) reproduces the historical behavior exactly:
+    one ``propose_bundle`` followed by up to ``max_iterations`` verify/repair
+    turns. With reroll enabled, a chain is abandoned and re-proposed from scratch
+    after ``repairs_per_chain`` repairs or as soon as the same failure
+    fingerprint repeats (no progress), reallocating the same total iteration
+    budget toward fresh attempts rather than a poisoned transcript.
+    """
+
+    budget = task.max_iterations
+    total_iter = 0
+    reroll_count = 0
+    bundle: ModuleBundle
+    proof: CompositionalProofBundle | None = None
+    last_work_dir: Path | None = None
+    first_chain = True
+
+    while budget > 0:
+        if first_chain:
+            LOGGER.info("Synthesising initial bundle...")
+            first_chain = False
+        else:
+            reroll_count += 1
+            LOGGER.info(
+                "Rerolling from a fresh propose_bundle (reroll #%d)...", reroll_count
+            )
+        bundle, history, tool_use_id = synth.propose_bundle(task, plan)
+        chain_fingerprints: list[frozenset[tuple[str, str, str, str]]] = []
+        chain_len = 0
+
+        while budget > 0:
+            budget -= 1
+            total_iter += 1
+            chain_len += 1
+            work_dir = settings.work_dir / f"{bundle.slug}_iter{total_iter - 1}"
+            findings = lint_bundle(bundle) if settings.enable_preflight else []
+            if findings:
+                # #2 — reject deterministically without spending a TLC run; the
+                # synthetic proof carries the lint diagnostics into the repair.
+                ensure_directory(work_dir)
+                proof = preflight_proof(bundle, findings)
+                LOGGER.warning(
+                    "Iteration %d: pre-flight rejected bundle %s (%d finding(s)); "
+                    "skipped TLC.",
+                    total_iter,
+                    bundle.slug,
+                    len(findings),
+                )
+            else:
+                LOGGER.info(
+                    "Iteration %d: verifying bundle %s...", total_iter, bundle.slug
+                )
+                proof = verifier.check_bundle(bundle, work_dir)
+            last_work_dir = work_dir
+            if proof.all_passed:
+                LOGGER.info(
+                    "All compositional obligations passed at iteration %d.",
+                    total_iter,
+                )
+                return _SynthOutcome(
+                    bundle, proof, total_iter, reroll_count, work_dir
+                )
+
+            fingerprint = _proof_fingerprint(proof)
+            stuck = bool(chain_fingerprints) and chain_fingerprints[-1] == fingerprint
+            chain_fingerprints.append(fingerprint)
+            LOGGER.warning(
+                "Iteration %d failed: modules=%s, refinement=%s%s.",
+                total_iter,
+                proof.failing_modules(),
+                proof.refinement.status,
+                " (same failure as last iteration — stuck)" if stuck else "",
+            )
+            if budget == 0:
+                break
+
+            if settings.enable_reroll and (
+                stuck
+                or (
+                    settings.repairs_per_chain > 0
+                    and chain_len >= settings.repairs_per_chain
+                )
+            ):
+                LOGGER.info(
+                    "Abandoning chain after %d repair(s) (stuck=%s); rerolling.",
+                    chain_len,
+                    stuck,
+                )
+                break  # -> outer reroll loop
+
+            LOGGER.info("Requesting repair...")
+            bundle, history, tool_use_id = synth.repair_bundle(
+                history=history,
+                proof=proof,
+                last_bundle=bundle,
+                previous_tool_use_id=tool_use_id,
+            )
+
+        if not settings.enable_reroll:
+            break
+
+    assert proof is not None
+    assert last_work_dir is not None
+    return _SynthOutcome(bundle, proof, total_iter, reroll_count, last_work_dir)
 
 
 def _write_bundle_outputs(

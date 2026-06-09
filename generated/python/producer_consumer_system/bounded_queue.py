@@ -1,4 +1,10 @@
-"""Generated from BoundedQueue_Impl.tla. Inductive Inv: buffer \\in BoundedSeq(1..10, Capacity) /\\ pc \\in {"Loop", "Finish", "Done"}."""
+"""Generated from BoundedQueue_Impl.tla.
+
+Inductive Inv:
+    /\ pc \in {"Loop", "Finish", "Done"}
+    /\ buffer \in BoundedSeqs
+    /\ Len(buffer) \in 0..Capacity
+"""
 
 from __future__ import annotations
 
@@ -7,18 +13,21 @@ import icontract
 from ._trace import log_action
 
 
-@icontract.invariant(
-    lambda self: all(v in range(1, 11) for v in self.buffer)
-    and len(self.buffer) <= self.capacity
-)
 @icontract.invariant(lambda self: self.pc in {"Loop", "Finish", "Done"})
+@icontract.invariant(
+    lambda self: isinstance(self.buffer, list)
+    and all(isinstance(x, int) and 1 <= x <= 10 for x in self.buffer)
+)
+@icontract.invariant(lambda self: 0 <= len(self.buffer) <= self.capacity)
 class BoundedQueue:
     def __init__(self, capacity: int = 3) -> None:
-        self.capacity = capacity
+        if capacity < 0:
+            raise ValueError("capacity must be non-negative")
+        self.capacity: int = capacity
         self.buffer: list[int] = []
-        self.pc = "Loop"
+        self.pc: str = "Loop"
 
-    @icontract.require(lambda self, v: v in range(1, 11))
+    @icontract.require(lambda self, v: isinstance(v, int) and 1 <= v <= 10)
     @icontract.require(lambda self: len(self.buffer) < self.capacity)
     @icontract.require(lambda self: self.pc == "Loop")
     @icontract.ensure(lambda self: self.pc == "Loop")
@@ -32,9 +41,11 @@ class BoundedQueue:
     @icontract.require(lambda self: len(self.buffer) > 0)
     @icontract.require(lambda self: self.pc == "Loop")
     @icontract.ensure(lambda self: self.pc == "Loop")
-    def dequeue(self) -> None:
+    def dequeue(self) -> int:
+        head = self.buffer[0]
         self.buffer = self.buffer[1:]
         log_action(
             "BoundedQueue.Dequeue",
             {"queue": list(self.buffer)},
         )
+        return head

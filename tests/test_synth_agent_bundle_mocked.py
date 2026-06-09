@@ -318,3 +318,87 @@ def test_repair_bundle_includes_refinement_failure():
     content = repair_call["messages"][-1]["content"][0]["content"]
     assert "refinement obligation: FAILED" in content
     assert "Abs_Queue!Spec" in content
+
+
+# ---------------------------------------------------------------------------
+# #1a — repair history truncation ("latest" mode)
+# ---------------------------------------------------------------------------
+
+
+def _two_repair_rounds(mode: str) -> FakeAnthropic:
+    """Run propose_bundle + two repair_bundle rounds under the given mode."""
+
+    propose_input = _sample_bundle_input()
+    repair_input = {**propose_input, "reasoning": "r", "targeted_failure": "Queue/consec"}
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_propose_bundle_block(propose_input, "tu_b1")]),
+            FakeMessage(content=[_repair_bundle_block(repair_input, "tu_b2")]),
+            FakeMessage(content=[_repair_bundle_block(repair_input, "tu_b3")]),
+        ]
+    )
+    agent = SynthesisAgent(client, repair_history_mode=mode)
+    bundle, history, tuid = agent.propose_bundle(
+        TaskRequest(prompt="bounded queue"), _sample_plan()
+    )
+    proof = _failing_compositional_proof()
+    bundle, history, tuid = agent.repair_bundle(
+        history=history, proof=proof, last_bundle=bundle, previous_tool_use_id=tuid
+    )
+    agent.repair_bundle(
+        history=history, proof=proof, last_bundle=bundle, previous_tool_use_id=tuid
+    )
+    return fake
+
+
+def test_repair_history_latest_truncates_growing_transcript():
+    fake = _two_repair_rounds("latest")
+    # Second repair (call index 2): [initial user, most-recent assistant, tool_result]
+    second_repair_msgs = fake.calls[2]["messages"]
+    assert len(second_repair_msgs) == 3
+    assert second_repair_msgs[0]["role"] == "user"
+    assert second_repair_msgs[1]["role"] == "assistant"
+    assert second_repair_msgs[-1]["content"][0]["type"] == "tool_result"
+    # The tool_result must still reference a tool_use present in the kept turn.
+    assert second_repair_msgs[-1]["content"][0]["tool_use_id"] == "tu_b2"
+
+
+def test_repair_history_full_keeps_growing_transcript():
+    fake = _two_repair_rounds("full")
+    # Full mode re-sends everything: user, asst1, tr1, asst2, tr2 = 5 messages.
+    assert len(fake.calls[2]["messages"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# #6 — few-shot blocks appended to the bundle synth/repair system prompts
+# ---------------------------------------------------------------------------
+
+
+def test_few_shot_block_appended_to_synth_and_repair_systems():
+    propose_input = _sample_bundle_input()
+    repair_input = {**propose_input, "reasoning": "r", "targeted_failure": "Queue/consec"}
+    client, fake = _make_client(
+        [
+            FakeMessage(content=[_propose_bundle_block(propose_input, "tu_b1")]),
+            FakeMessage(content=[_repair_bundle_block(repair_input, "tu_b2")]),
+        ]
+    )
+    agent = SynthesisAgent(
+        client,
+        synth_few_shot="\n<<SYNTH_FEWSHOT_MARKER>>",
+        repair_few_shot="\n<<REPAIR_FEWSHOT_MARKER>>",
+    )
+    bundle, history, tuid = agent.propose_bundle(
+        TaskRequest(prompt="bounded queue"), _sample_plan()
+    )
+    agent.repair_bundle(
+        history=history,
+        proof=_failing_compositional_proof(),
+        last_bundle=bundle,
+        previous_tool_use_id=tuid,
+    )
+
+    assert "<<SYNTH_FEWSHOT_MARKER>>" in fake.calls[0]["system"][0]["text"]
+    assert "<<REPAIR_FEWSHOT_MARKER>>" in fake.calls[1]["system"][0]["text"]
+    # Cache control is still attached so the (now longer) prefix stays cacheable.
+    assert fake.calls[0]["system"][0]["cache_control"] == {"type": "ephemeral"}

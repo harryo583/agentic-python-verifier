@@ -1,8 +1,6 @@
-"""Composed parent for ReplicatedLog. Property: ElectionSafety /\\ LogBounds /\\ TermBounds."""
+"""Composed parent for ReplicatedLog. Property: AtMostOneLeader /\\ TypeOK."""
 
 from __future__ import annotations
-
-import random
 
 import icontract
 
@@ -10,107 +8,84 @@ from ._trace import log_action
 from .election import Election
 from .log_store import LogStore
 
-random.seed(0)
 
-_NODES = ["n1", "n2", "n3"]
-_MAX_TERM = 2
-_MAX_LEN = 3
-_ENTRIES = frozenset([1, 2, 3])
-
-
-@icontract.invariant(
-    lambda self: sum(1 for n in self.election.nodes if self.election.role[n] == "leader") <= 1
-)
 @icontract.invariant(
     lambda self: all(
-        len(self.log_store.logs[n]) <= self.log_store.max_len for n in self.log_store.nodes
+        self.election.role[n] in ("leader", "follower") for n in self.election.nodes
     )
+    and all(0 <= self.election.term[n] <= self.election.max_term for n in self.election.nodes)
 )
 @icontract.invariant(
     lambda self: all(
-        all(e in self.log_store.entries for e in self.log_store.logs[n])
+        n in self.log_store.log
+        and isinstance(self.log_store.log[n], list)
+        and len(self.log_store.log[n]) <= self.log_store.max_len
+        and all(e in self.log_store.entries for e in self.log_store.log[n])
         for n in self.log_store.nodes
     )
+    and set(self.log_store.log.keys()) == set(self.log_store.nodes)
 )
 @icontract.invariant(
-    lambda self: all(
-        isinstance(self.election.term[n], int) and 0 <= self.election.term[n] <= self.election.max_term
-        for n in self.election.nodes
+    lambda self: sum(
+        1 for n in self.election.nodes if self.election.role[n] == "leader"
     )
+    <= 1
 )
 class ReplicatedLog:
     def __init__(self) -> None:
-        self.election = Election(nodes=list(_NODES), max_term=_MAX_TERM)
-        self.log_store = LogStore(
-            nodes=frozenset(_NODES), max_len=_MAX_LEN, entries=_ENTRIES
-        )
-        self._tick = 0
-
-    def _leaders(self) -> list:
-        return [n for n in self.election.nodes if self.election.role[n] == "leader"]
+        nodes = ["n1", "n2", "n3"]
+        entries = [1, 2, 3]
+        self.election = Election(nodes=nodes, max_term=2)
+        self.log_store = LogStore(nodes=nodes, entries=entries, max_len=3)
+        self._turn = 0
 
     def step(self) -> None:
-        """One atomic composed transition selected deterministically by tick."""
-        t = self._tick
-        self._tick += 1
+        """One atomic step: alternate between Election.Next and LogStore.Next.
 
-        leaders = self._leaders()
+        Election action keeps log/pcL UNCHANGED; LogStore action keeps
+        role/term/pcE UNCHANGED. Each branch performs exactly one composed
+        transition.
+        """
+        nodes = self.election.nodes
+        t = self._turn
+        self._turn += 1
 
-        # Cycle through a small deterministic schedule that exercises all actions.
-        phase = t % 8
-
-        if phase == 0:
-            # Elect a leader if none exists.
-            if len(leaders) == 0:
-                self.election.elect_leader(_NODES[0])
-        elif phase == 1:
-            # Leader appends an entry.
-            if leaders:
-                ldr = leaders[0]
-                if len(self.log_store.logs[ldr]) < self.log_store.max_len:
-                    entry = ((t // 8) % 3) + 1
-                    self.log_store.append_entry(ldr, entry)
-        elif phase == 2:
-            # Replicate from leader to a follower.
-            if leaders:
-                ldr = leaders[0]
-                followers = [n for n in self.election.nodes if self.election.role[n] == "follower"]
-                if followers:
-                    self.log_store.replicate(followers[0], ldr)
-        elif phase == 3:
-            # Leader appends another entry.
-            if leaders:
-                ldr = leaders[0]
-                if len(self.log_store.logs[ldr]) < self.log_store.max_len:
-                    entry = ((t // 8) % 3) + 1
-                    self.log_store.append_entry(ldr, entry)
-        elif phase == 4:
-            # Replicate to second follower.
-            if leaders:
-                ldr = leaders[0]
-                followers = [n for n in self.election.nodes if self.election.role[n] == "follower"]
-                if len(followers) >= 2:
-                    self.log_store.replicate(followers[1], ldr)
-        elif phase == 5:
-            # Bump term if possible.
-            if self.election.term[_NODES[0]] < self.election.max_term:
-                self.election.bump_term(_NODES[0])
-        elif phase == 6:
-            # Step down current leader.
-            if leaders:
-                self.election.step_down(leaders[0])
-        elif phase == 7:
-            # Elect a (possibly different) leader if none.
-            if len(self._leaders()) == 0:
-                idx = (t // 8) % len(_NODES)
-                self.election.elect_leader(_NODES[idx])
+        if t % 2 == 0:
+            # Election action: try to elect the next node as leader.
+            max_t = max(self.election.term[n] for n in nodes)
+            if max_t < self.election.max_term:
+                # Choose deterministic candidate.
+                candidate = nodes[(t // 2) % len(nodes)]
+                self.election.elect_leader(candidate)
+        else:
+            # LogStore action: append or replicate.
+            # Find a leader (or fall back to n1) and append an entry.
+            leader = None
+            for n in nodes:
+                if self.election.role[n] == "leader":
+                    leader = n
+                    break
+            if leader is None:
+                leader = nodes[0]
+            if len(self.log_store.log[leader]) < self.log_store.max_len:
+                # Deterministic entry choice.
+                entry = self.log_store.entries[
+                    (t // 2) % len(self.log_store.entries)
+                ]
+                self.log_store.append_entry(leader, entry)
+            else:
+                # Replicate leader's log to a follower whose log differs.
+                for dst in nodes:
+                    if dst != leader and self.log_store.log[dst] != self.log_store.log[leader]:
+                        self.log_store.replicate(leader, dst)
+                        break
 
         log_action(
             "ReplicatedLog.Step",
             {
                 "role": dict(self.election.role),
                 "term": dict(self.election.term),
-                "logs": {k: list(v) for k, v in self.log_store.logs.items()},
+                "log": {k: list(v) for k, v in self.log_store.log.items()},
             },
         )
 

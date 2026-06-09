@@ -7,53 +7,50 @@ import icontract
 from ._trace import log_action
 
 
-@icontract.invariant(lambda self: len(self.log) <= self.max_log_len)
+@icontract.invariant(lambda self: isinstance(self.log, list) and len(self.log) <= self.max_log_len)
 @icontract.invariant(
     lambda self: all(
-        (entry["from"] in self.accts)
-        and (entry["to"] in self.accts)
-        and (entry["amount"] in self.amounts)
-        for entry in self.log
+        isinstance(e, dict)
+        and set(e.keys()) == {"from", "to", "amount"}
+        and e["from"] in self.accts
+        and e["to"] in self.accts
+        and e["amount"] in self.amounts
+        for e in self.log
     )
 )
 @icontract.invariant(
     lambda self: all(
-        (entry["from"] != entry["to"]) and (entry["amount"] > 0)
-        for entry in self.log
+        e["amount"] in self.amounts and e["from"] != e["to"] for e in self.log
     )
 )
 @icontract.invariant(lambda self: self.pc in {"Loop", "Finish", "Done"})
 class AuditLog:
-    def __init__(
-        self,
-        accts: frozenset[str] = frozenset({"a", "b", "c"}),
-        amounts: frozenset[int] = frozenset({1, 2, 3}),
-        max_log_len: int = 5,
-    ) -> None:
-        self.accts = frozenset(accts)
-        self.amounts = frozenset(amounts)
+    def __init__(self, accts, amounts, max_log_len: int) -> None:
+        self.accts = set(accts)
+        self.amounts = set(amounts)
         self.max_log_len = max_log_len
         self.log: list[dict] = []
         self.pc = "Loop"
 
-    @icontract.require(lambda self, f, t, amt: f in self.accts)
-    @icontract.require(lambda self, f, t, amt: t in self.accts)
-    @icontract.require(lambda self, f, t, amt: amt in self.amounts)
-    @icontract.require(lambda self, f, t, amt: f != t)
-    @icontract.require(lambda self, f, t, amt: amt > 0)
-    @icontract.ensure(lambda self: self.pc in {"Loop", "Finish", "Done"})
-    def do_append(self, f: str, t: str, amt: int) -> None:
-        if self.pc == "Loop" and len(self.log) < self.max_log_len:
-            self.log = self.log + [{"from": f, "to": t, "amount": amt}]
-            log_action(
-                "AuditLog.DoAppend",
-                {"log": [dict(e) for e in self.log]},
-            )
+    @icontract.require(lambda self, frm, to, amt: frm in self.accts and to in self.accts)
+    @icontract.require(lambda self, frm, to, amt: amt in self.amounts)
+    @icontract.require(lambda self, frm, to, amt: frm != to)
+    @icontract.require(lambda self: self.pc == "Loop")
+    @icontract.require(lambda self: len(self.log) < self.max_log_len)
+    @icontract.ensure(lambda self: self.pc == "Loop")
+    def append_entry(self, frm, to, amt) -> None:
+        self.log = self.log + [{"from": frm, "to": to, "amount": amt}]
+        log_action(
+            "AuditLog.Append1",
+            {"log": [dict(e) for e in self.log]},
+        )
 
-    @icontract.ensure(lambda self: self.pc in {"Loop", "Finish", "Done"})
     def finish(self) -> None:
-        # Stutter: transition Loop -> Finish -> Done does not change abs vars.
         if self.pc == "Loop":
             self.pc = "Finish"
-        elif self.pc == "Finish":
+        # stutter: do not log; abs var `log` unchanged
+
+    def done(self) -> None:
+        if self.pc == "Finish":
             self.pc = "Done"
+        # stutter: do not log; abs var `log` unchanged

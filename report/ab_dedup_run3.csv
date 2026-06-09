@@ -1,0 +1,7 @@
+slug,status,iterations,reroll_count,n_modules,n_impls,ref_status,per_module_pass,per_module_fail,trace_conform,trace_diverged,trace_inv_violated,trace_other,pipeline_seconds,total_tlc_seconds,llm_calls,input_tokens,output_tokens,cached_read_tokens,est_usd,error_note
+bank_audit,verified,2,0,2,2,passed,2,0,2,0,0,0,265.12,5.77,6,17518,13613,11012,1.3878,
+cache_store,verified,5,0,2,2,passed,2,0,2,0,0,0,248.32,5.39,9,18126,22208,23085,2.2642,
+leader_log,unverified,6,0,2,2,error,1,1,0,0,0,0,341.17,2.87,7,10988,28252,17011,2.7515,failing_modules=LogStore
+producer_consumer,verified,6,0,3,3,passed,3,0,3,0,0,0,745.85,37.46,11,21373,30625,18671,3.2556,
+rw_lock,verified,2,0,2,2,passed,2,0,2,0,0,0,158.76,5.09,6,16067,13328,11012,1.3446,
+two_phase_commit,unverified,6,0,2,2,error,2,0,0,0,0,0,337.15,4.57,7,14182,32842,17011,3.2209,failing_modules=

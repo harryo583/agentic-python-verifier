@@ -1,0 +1,6 @@
+slug,stage,calls,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens,latency_s,est_usd,degraded_calls
+producer_consumer,planner,1,2448,582,0,0,7.76,0.08037,0
+producer_consumer,synth_bundle,1,1391,4633,0,4666,41.747,0.455827,0
+producer_consumer,repair_bundle,3,18441,16020,7407,24294,141.985,1.944738,0
+producer_consumer,refine_child,3,4591,3291,6326,3163,32.479,0.384485,0
+producer_consumer,refine_parent,1,4332,2315,0,2217,24.049,0.280174,0

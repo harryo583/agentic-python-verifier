@@ -1,7 +1,7 @@
 ---- MODULE BoundedQueue_Impl ----
 EXTENDS Naturals, Sequences
 
-CONSTANTS Capacity
+CONSTANT Capacity
 
 (* --algorithm BoundedQueue
 variables buffer = << >>;
@@ -55,11 +55,11 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-BoundedSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
+BoundedSeqs == UNION { [ 1..n -> 1..10 ] : n \in 0..Capacity }
 
-Inv ==
-  /\ buffer \in BoundedSeq(1..10, Capacity)
-  /\ pc \in {"Loop", "Finish", "Done"}
+Inv == /\ pc \in {"Loop", "Finish", "Done"}
+       /\ buffer \in BoundedSeqs
+       /\ Len(buffer) \in 0..Capacity
 
 Property == Len(buffer) \in 0..Capacity
 

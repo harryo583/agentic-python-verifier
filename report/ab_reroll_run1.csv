@@ -1,0 +1,7 @@
+slug,status,iterations,reroll_count,n_modules,n_impls,ref_status,per_module_pass,per_module_fail,trace_conform,trace_diverged,trace_inv_violated,trace_other,pipeline_seconds,total_tlc_seconds,llm_calls,input_tokens,output_tokens,cached_read_tokens,est_usd,error_note
+bank_audit,verified,5,0,2,2,passed,2,0,2,0,0,0,261.84,5.92,9,28521,22955,18495,2.8389,
+cache_store,verified,6,2,2,2,passed,2,0,0,0,0,2,307.89,6.15,10,18731,29033,29948,2.7549,
+leader_log,verified,6,1,2,2,passed,2,0,2,0,0,0,375.63,26.41,10,25919,32250,22371,3.379,
+producer_consumer,verified,4,0,3,3,passed,3,0,3,0,0,0,421.56,7.59,9,31747,28700,18399,3.2455,
+rw_lock,verified,6,1,2,2,passed,2,0,2,0,0,0,377.45,5.15,10,27064,37607,17705,3.9274,
+two_phase_commit,unverified,6,2,2,2,error,0,2,0,0,0,0,300.37,0.95,7,17673,29677,21405,2.8163,"failing_modules=ResourceManager,Coordinator"

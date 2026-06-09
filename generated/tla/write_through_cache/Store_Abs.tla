@@ -1,27 +1,19 @@
 ---- MODULE Store_Abs ----
-EXTENDS Integers, FiniteSets
-
-CONSTANTS Keys, Values, Missing
-
+EXTENDS Naturals, FiniteSets
+CONSTANTS Keys, Vals, NoVal
 VARIABLES store
-
 vars == << store >>
 
-Init == store = [k \in Keys |-> Missing]
+EmptyFn == [x \in {} |-> 0]
 
-Write(k, v) ==
-  /\ k \in Keys
-  /\ v \in Values
-  /\ store' = [store EXCEPT ![k] = v]
+IsPartialFn(f, Dom, Rng) == \E K \in SUBSET Dom : f \in [K -> Rng]
 
-ReadNoop == UNCHANGED store
-
-Next == ReadNoop \/ \E k \in Keys, v \in Values : Write(k, v)
-
+Init == store = EmptyFn
+WriteStore(k, v) == store' = [j \in (DOMAIN store) \cup {k} |-> IF j = k THEN v ELSE store[j]]
+ReadStore == UNCHANGED store
+Next == ReadStore \/ (\E k \in Keys, v \in Vals : WriteStore(k, v))
 Spec == Init /\ [][Next]_vars
 
-Inv == store \in [Keys -> Values \cup {Missing}]
-
+Inv == IsPartialFn(store, Keys, Vals)
 Property == Inv
-
 ====

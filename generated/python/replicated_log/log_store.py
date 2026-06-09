@@ -1,4 +1,4 @@
-"""Generated from LogStore_Impl.tla. Inductive Inv: TypeOK /\\ \\A n \\in Nodes : Len(logs[n]) <= MaxLen."""
+"""Generated from LogStore_Impl.tla. Inductive Inv: TypeOK."""
 
 from __future__ import annotations
 
@@ -7,43 +7,39 @@ import icontract
 from ._trace import log_action
 
 
-@icontract.invariant(lambda self: all(n in self.logs for n in self.nodes))
 @icontract.invariant(
     lambda self: all(
-        all(e in self.entries for e in self.logs[n]) for n in self.nodes
+        n in self.log
+        and isinstance(self.log[n], list)
+        and len(self.log[n]) <= self.max_len
+        and all(e in self.entries for e in self.log[n])
+        for n in self.nodes
     )
-)
-@icontract.invariant(
-    lambda self: all(len(self.logs[n]) <= self.max_len for n in self.nodes)
+    and set(self.log.keys()) == set(self.nodes)
 )
 class LogStore:
-    def __init__(
-        self,
-        nodes: frozenset[str] | set[str],
-        max_len: int,
-        entries: frozenset[str] | set[str],
-    ) -> None:
-        self.nodes = frozenset(nodes)
+    def __init__(self, nodes, entries, max_len: int) -> None:
+        self.nodes = list(nodes)
+        self.entries = list(entries)
         self.max_len = int(max_len)
-        self.entries = frozenset(entries)
-        self.logs: dict[str, list] = {n: [] for n in self.nodes}
+        self.log = {n: [] for n in self.nodes}
 
-    @icontract.require(lambda self, n: n in self.nodes)
-    @icontract.require(lambda self, n, e: e in self.entries)
-    @icontract.require(lambda self, n: len(self.logs[n]) < self.max_len)
-    @icontract.ensure(lambda self, n: len(self.logs[n]) <= self.max_len)
-    def append_entry(self, n: str, e: str) -> None:
-        self.logs[n] = self.logs[n] + [e]
+    @icontract.require(lambda self, n, e: n in self.nodes and e in self.entries)
+    @icontract.require(lambda self, n, e: len(self.log[n]) < self.max_len)
+    @icontract.ensure(lambda self, n, e: self.log[n][-1] == e)
+    def append_entry(self, n, e) -> None:
+        self.log[n] = self.log[n] + [e]
         log_action(
             "LogStore.AppendEntry",
-            {"logs": {k: list(v) for k, v in self.logs.items()}},
+            {"log": {k: list(v) for k, v in self.log.items()}},
         )
 
-    @icontract.require(lambda self, f: f in self.nodes)
-    @icontract.require(lambda self, f, src: src in self.nodes)
-    def replicate(self, f: str, src: str) -> None:
-        self.logs[f] = list(self.logs[src])
+    @icontract.require(lambda self, src, dst: src in self.nodes and dst in self.nodes)
+    @icontract.require(lambda self, src, dst: src != dst)
+    @icontract.ensure(lambda self, src, dst: self.log[dst] == self.log[src])
+    def replicate(self, src, dst) -> None:
+        self.log[dst] = list(self.log[src])
         log_action(
             "LogStore.Replicate",
-            {"logs": {k: list(v) for k, v in self.logs.items()}},
+            {"log": {k: list(v) for k, v in self.log.items()}},
         )

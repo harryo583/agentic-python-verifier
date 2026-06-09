@@ -7,13 +7,12 @@ VARIABLES client_state
 
 vars == << client_state >>
 
-TypeOK == client_state \in [Clients -> {"idle","reading","writing"}]
-
 Init == client_state = [c \in Clients |-> "idle"]
+
+WritingSet == { c \in Clients : client_state[c] = "writing" }
 
 StartRead(c) ==
   /\ client_state[c] = "idle"
-  /\ \A o \in Clients : client_state[o] # "writing"
   /\ client_state' = [client_state EXCEPT ![c] = "reading"]
 
 FinishRead(c) ==
@@ -22,7 +21,7 @@ FinishRead(c) ==
 
 StartWrite(c) ==
   /\ client_state[c] = "idle"
-  /\ \A o \in Clients : client_state[o] = "idle"
+  /\ WritingSet = {}
   /\ client_state' = [client_state EXCEPT ![c] = "writing"]
 
 FinishWrite(c) ==
@@ -34,11 +33,9 @@ Next == \E c \in Clients :
 
 Spec == Init /\ [][Next]_vars
 
-WritersSet == { c \in Clients : client_state[c] = "writing" }
-ReadersSet == { c \in Clients : client_state[c] = "reading" }
-
 Inv ==
-  /\ TypeOK
-  /\ Cardinality(WritersSet) <= 1
-  /\ ~(ReadersSet # {} /\ WritersSet # {})
+  /\ client_state \in [Clients -> {"idle", "reading", "writing"}]
+  /\ Cardinality(WritingSet) <= 1
+
+Property == Inv
 ====

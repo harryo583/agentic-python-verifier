@@ -39,6 +39,14 @@ class SynthesisAgent:
     """Orchestrates the LLM calls that propose and repair specs."""
 
     client: AnthropicClient
+    # #1a — "full" (default) sends the whole growing transcript on each repair;
+    # "latest" truncates to [initial task, most-recent attempt] + newest failure
+    # to cut anchoring bias and input tokens. See _truncate_history.
+    repair_history_mode: str = "full"
+    # #6 — static few-shot exemplar blocks appended to the bundle synth/repair
+    # system prompts (empty = disabled). Constant per run, so prompt-cache-safe.
+    synth_few_shot: str = ""
+    repair_few_shot: str = ""
 
     def propose(self, task: TaskRequest) -> tuple[SynthesisProposal, list[dict[str, Any]]]:
         """Initial proposal. Returns the proposal and the conversation history."""
@@ -50,6 +58,7 @@ class SynthesisAgent:
             messages=request_messages,
             tools=[PROPOSE_TOOL],
             tool_choice={"type": "tool", "name": PROPOSE_TOOL["name"]},
+            stage="synth",
         )
         tool_use = self.client.extract_tool_use(response, expected_name=PROPOSE_TOOL["name"])
         proposal = SynthesisProposal.model_validate(tool_use.input)
@@ -69,7 +78,7 @@ class SynthesisAgent:
         """Send TLC failure back to the LLM and parse the revised proposal."""
 
         feedback = _serialise_failure(bundle, last_proposal)
-        request_messages = list(history) + [
+        request_messages = self._repair_base(history) + [
             {
                 "role": "user",
                 "content": [
@@ -86,6 +95,7 @@ class SynthesisAgent:
             messages=request_messages,
             tools=[REPAIR_TOOL],
             tool_choice={"type": "tool", "name": REPAIR_TOOL["name"]},
+            stage="repair",
         )
         tool_use = self.client.extract_tool_use(response, expected_name=REPAIR_TOOL["name"])
         repair = RepairProposal.model_validate(tool_use.input)
@@ -106,10 +116,11 @@ class SynthesisAgent:
         user_msg = _initial_bundle_user_message(task, plan)
         request_messages: list[dict[str, Any]] = [user_msg]
         response = self.client.message(
-            system=SYNTH_BUNDLE_SYSTEM,
+            system=SYNTH_BUNDLE_SYSTEM + self.synth_few_shot,
             messages=request_messages,
             tools=[PROPOSE_BUNDLE_TOOL],
             tool_choice={"type": "tool", "name": PROPOSE_BUNDLE_TOOL["name"]},
+            stage="synth_bundle",
         )
         tool_use = self.client.extract_tool_use(
             response, expected_name=PROPOSE_BUNDLE_TOOL["name"]
@@ -130,7 +141,7 @@ class SynthesisAgent:
         """Send a per-module + refinement failure summary back to the LLM."""
 
         feedback = _serialise_bundle_failure(proof, last_bundle)
-        request_messages = list(history) + [
+        request_messages = self._repair_base(history) + [
             {
                 "role": "user",
                 "content": [
@@ -143,10 +154,11 @@ class SynthesisAgent:
             }
         ]
         response = self.client.message(
-            system=REPAIR_BUNDLE_SYSTEM,
+            system=REPAIR_BUNDLE_SYSTEM + self.repair_few_shot,
             messages=request_messages,
             tools=[REPAIR_BUNDLE_TOOL],
             tool_choice={"type": "tool", "name": REPAIR_BUNDLE_TOOL["name"]},
+            stage="repair_bundle",
         )
         tool_use = self.client.extract_tool_use(
             response, expected_name=REPAIR_BUNDLE_TOOL["name"]
@@ -156,6 +168,44 @@ class SynthesisAgent:
             {"role": "assistant", "content": _content_blocks(response)}
         ]
         return new_bundle, new_history, tool_use.tool_use_id
+
+    def _repair_base(
+        self, history: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """The conversation prefix a repair call conditions on.
+
+        In ``"full"`` mode (default) this is the entire growing transcript —
+        today's behavior. In ``"latest"`` mode it is truncated to the initial
+        task message plus the single most-recent assistant attempt (the one
+        bearing the ``tool_use`` the new ``tool_result`` will reference), which
+        drops poisoned middle iterations and shrinks input tokens while keeping
+        a structurally valid conversation.
+        """
+
+        if self.repair_history_mode != "latest":
+            return list(history)
+        return _truncate_history(history)
+
+
+def _truncate_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep [initial user message, most-recent assistant turn with a tool_use]."""
+
+    if not history:
+        return []
+    first_user = history[0]
+    last_assistant: dict[str, Any] | None = None
+    for msg in reversed(history):
+        if msg.get("role") != "assistant":
+            continue
+        if any(
+            isinstance(b, dict) and b.get("type") == "tool_use"
+            for b in msg.get("content", []) or []
+        ):
+            last_assistant = msg
+            break
+    if last_assistant is None:
+        return list(history)
+    return [first_user, last_assistant]
 
 
 def _initial_user_message(task: TaskRequest) -> dict[str, Any]:

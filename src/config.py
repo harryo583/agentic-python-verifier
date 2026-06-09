@@ -44,6 +44,22 @@ class Settings:
     trace_max_entries: int = 200
     skip_trace_gate: bool = False
 
+    # Efficiency knobs (all default to today's behavior so A/B is clean).
+    # #1a — "full" sends the whole growing transcript on each repair (today);
+    #       "latest" truncates to [initial task, most-recent attempt] + newest failure.
+    repair_history_mode: str = "full"
+    # #1b/c — when enabled, abandon a repair chain after `repairs_per_chain`
+    #         repairs (or on a repeated failure fingerprint) and reroll from a
+    #         fresh propose_bundle. `repairs_per_chain=0` means "never reroll".
+    enable_reroll: bool = False
+    repairs_per_chain: int = 2
+    # #2 — deterministic pre-flight linter; reject known-mechanical errors before
+    #      spending a TLC+repair round-trip.
+    enable_preflight: bool = False
+    # #6 — append frozen few-shot exemplars to the synth/repair system prompts.
+    few_shot_enabled: bool = False
+    exemplar_pool_dir: Optional[Path] = None
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing."""
@@ -90,7 +106,20 @@ def get_settings(
         trace_steps=int(os.getenv("TRACE_STEPS", "50")),
         trace_max_entries=int(os.getenv("TRACE_MAX_ENTRIES", "200")),
         skip_trace_gate=False,
+        repair_history_mode=os.getenv("REPAIR_HISTORY_MODE", "full"),
+        enable_reroll=_env_bool("ENABLE_REROLL", False),
+        repairs_per_chain=int(os.getenv("REPAIRS_PER_CHAIN", "2")),
+        enable_preflight=_env_bool("ENABLE_PREFLIGHT", False),
+        few_shot_enabled=_env_bool("FEW_SHOT_ENABLED", False),
+        exemplar_pool_dir=project_root / "examples_pool",
     )
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def require_runtime_settings(settings: Settings) -> None:

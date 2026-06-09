@@ -44,6 +44,7 @@ class PlannerAgent:
                 messages=messages,
                 tools=[PROPOSE_DECOMPOSITION_TOOL],
                 tool_choice={"type": "tool", "name": PROPOSE_DECOMPOSITION_TOOL["name"]},
+                stage="planner",
             )
             tool_use = self.client.extract_tool_use(
                 response, expected_name=PROPOSE_DECOMPOSITION_TOOL["name"]

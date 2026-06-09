@@ -1,11 +1,13 @@
 ---- MODULE Consumer_Impl ----
 EXTENDS Naturals, Sequences
 
+CONSTANT MaxLen
+
 (* --algorithm Consumer
 variables received = << >>, sum = 0;
 begin
-  ConsumeLoop:
-    while Len(received) < 3 do
+  Loop:
+    while Len(received) < MaxLen do
       with v \in 1..10 do
         received := Append(received, v);
         sum := sum + v;
@@ -14,7 +16,7 @@ begin
   Finish:
     skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "cef27ff4" /\ chksum(tla) = "e915cb38")
+\* BEGIN TRANSLATION (chksum(pcal) = "41ef712e" /\ chksum(tla) = "10d89e09")
 VARIABLES received, sum, pc
 
 vars == << received, sum, pc >>
@@ -22,16 +24,16 @@ vars == << received, sum, pc >>
 Init == (* Global variables *)
         /\ received = << >>
         /\ sum = 0
-        /\ pc = "ConsumeLoop"
+        /\ pc = "Loop"
 
-ConsumeLoop == /\ pc = "ConsumeLoop"
-               /\ IF Len(received) < 3
-                     THEN /\ \E v \in 1..10:
-                               /\ received' = Append(received, v)
-                               /\ sum' = sum + v
-                          /\ pc' = "ConsumeLoop"
-                     ELSE /\ pc' = "Finish"
-                          /\ UNCHANGED << received, sum >>
+Loop == /\ pc = "Loop"
+        /\ IF Len(received) < MaxLen
+              THEN /\ \E v \in 1..10:
+                        /\ received' = Append(received, v)
+                        /\ sum' = sum + v
+                   /\ pc' = "Loop"
+              ELSE /\ pc' = "Finish"
+                   /\ UNCHANGED << received, sum >>
 
 Finish == /\ pc = "Finish"
           /\ TRUE
@@ -41,7 +43,7 @@ Finish == /\ pc = "Finish"
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == pc = "Done" /\ UNCHANGED vars
 
-Next == ConsumeLoop \/ Finish
+Next == Loop \/ Finish
            \/ Terminating
 
 Spec == Init /\ [][Next]_vars
@@ -50,16 +52,15 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-BoundedSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
-
 RECURSIVE SumSeq(_)
-SumSeq(s) == IF s = << >> THEN 0 ELSE Head(s) + SumSeq(Tail(s))
+SumSeq(s) == IF Len(s) = 0 THEN 0 ELSE s[1] + SumSeq(Tail(s))
 
-Inv ==
-  /\ received \in BoundedSeq(1..10, 3)
-  /\ sum \in 0..30
-  /\ sum = SumSeq(received)
-  /\ pc \in {"ConsumeLoop", "Finish", "Done"}
+BoundedSeqs == UNION { [ 1..n -> 1..10 ] : n \in 0..MaxLen }
+
+Inv == /\ pc \in {"Loop", "Finish", "Done"}
+       /\ received \in BoundedSeqs
+       /\ sum \in 0..(MaxLen * 10)
+       /\ sum = SumSeq(received)
 
 Property == sum = SumSeq(received)
 

@@ -1,34 +1,23 @@
 ---- MODULE Cache_Abs ----
-EXTENDS Integers, FiniteSets
-
-CONSTANTS Keys, Values, Missing
-
+EXTENDS Naturals, FiniteSets
+CONSTANTS Keys, Vals, NoVal
 VARIABLES cache
-
 vars == << cache >>
 
-Init == cache = [k \in Keys |-> Missing]
+EmptyFn == [x \in {} |-> 0]
+IsPartialFn(f, Dom, Rng) == \E K \in SUBSET Dom : f \in [K -> Rng]
 
-Put(k, v) ==
-  /\ k \in Keys
-  /\ v \in Values
-  /\ cache' = [cache EXCEPT ![k] = v]
-
-Evict(k) ==
-  /\ k \in Keys
-  /\ cache' = [cache EXCEPT ![k] = Missing]
-
-Noop == UNCHANGED cache
-
-Next ==
-  \/ Noop
-  \/ \E k \in Keys, v \in Values : Put(k, v)
-  \/ \E k \in Keys : Evict(k)
-
+Init == cache = EmptyFn
+Fill(k, v) == cache' = [j \in (DOMAIN cache) \cup {k} |-> IF j = k THEN v ELSE cache[j]]
+Update(k, v) == cache' = [j \in (DOMAIN cache) \cup {k} |-> IF j = k THEN v ELSE cache[j]]
+Invalidate(k) == cache' = [j \in (DOMAIN cache) \ {k} |-> cache[j]]
+Lookup == UNCHANGED cache
+Next == Lookup
+     \/ (\E k \in Keys, v \in Vals : Fill(k, v))
+     \/ (\E k \in Keys, v \in Vals : Update(k, v))
+     \/ (\E k \in Keys : Invalidate(k))
 Spec == Init /\ [][Next]_vars
 
-Inv == cache \in [Keys -> Values \cup {Missing}]
-
+Inv == IsPartialFn(cache, Keys, Vals)
 Property == Inv
-
 ====

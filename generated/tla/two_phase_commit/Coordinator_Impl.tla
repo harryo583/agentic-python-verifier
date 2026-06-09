@@ -1,80 +1,61 @@
 ---- MODULE Coordinator_Impl ----
-EXTENDS Naturals, Sequences, FiniteSets, TLC
-CONSTANTS RMs
+EXTENDS Naturals, FiniteSets, TLC
 
-CoordStates == {"init", "preparing", "decided"}
-VoteVals == {"none", "prepared", "aborted"}
-Decisions == {"none", "Commit", "Abort"}
-PCs == {"Run", "Finish", "Done"}
+CONSTANTS RMIDs, Decisions
 
 (* --algorithm Coordinator
-variables
-  coordState = "init",
-  votes = [r \in RMs |-> "none"],
-  decision = "none";
+variables votes = {}, decision = "none";
 begin
-  Run:
+  CoLoop:
     while TRUE do
       either
-        await coordState = "init";
-        coordState := "preparing";
-      or
-        with r \in RMs, v \in {"prepared", "aborted"} do
-          await coordState = "preparing" /\ votes[r] = "none";
-          votes[r] := v;
+        await decision = "none";
+        with r \in RMIDs do
+          votes := votes \cup {r};
         end with;
       or
-        await coordState = "preparing" /\ decision = "none" /\ (\A r \in RMs : votes[r] = "prepared");
-        decision := "Commit";
-        coordState := "decided";
+        await decision = "none" /\ votes = RMIDs;
+        decision := "commit";
       or
-        await coordState = "preparing" /\ decision = "none" /\ (\E r \in RMs : votes[r] = "aborted");
-        decision := "Abort";
-        coordState := "decided";
+        await decision = "none";
+        decision := "abort";
       end either;
     end while;
   Finish:
     skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "e531fde3" /\ chksum(tla) = "6511be32")
-VARIABLES coordState, votes, decision, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "ec385770" /\ chksum(tla) = "b7bcbfa8")
+VARIABLES votes, decision, pc
 
-vars == << coordState, votes, decision, pc >>
+vars == << votes, decision, pc >>
 
 Init == (* Global variables *)
-        /\ coordState = "init"
-        /\ votes = [r \in RMs |-> "none"]
+        /\ votes = {}
         /\ decision = "none"
-        /\ pc = "Run"
+        /\ pc = "CoLoop"
 
-Run == /\ pc = "Run"
-       /\ \/ /\ coordState = "init"
-             /\ coordState' = "preparing"
-             /\ UNCHANGED <<votes, decision>>
-          \/ /\ \E r \in RMs:
-                  \E v \in {"prepared", "aborted"}:
-                    /\ coordState = "preparing" /\ votes[r] = "none"
-                    /\ votes' = [votes EXCEPT ![r] = v]
-             /\ UNCHANGED <<coordState, decision>>
-          \/ /\ coordState = "preparing" /\ decision = "none" /\ (\A r \in RMs : votes[r] = "prepared")
-             /\ decision' = "Commit"
-             /\ coordState' = "decided"
-             /\ votes' = votes
-          \/ /\ coordState = "preparing" /\ decision = "none" /\ (\E r \in RMs : votes[r] = "aborted")
-             /\ decision' = "Abort"
-             /\ coordState' = "decided"
-             /\ votes' = votes
-       /\ pc' = "Run"
+CoLoop == /\ pc = "CoLoop"
+          /\ \/ /\ decision = "none"
+                /\ \E r \in RMIDs:
+                     votes' = (votes \cup {r})
+                /\ UNCHANGED decision
+             \/ /\ decision = "none" /\ votes = RMIDs
+                /\ decision' = "commit"
+                /\ votes' = votes
+             \/ /\ decision = "none"
+                /\ decision' = "abort"
+                /\ votes' = votes
+          /\ pc' = "CoLoop"
 
 Finish == /\ pc = "Finish"
           /\ TRUE
           /\ pc' = "Done"
-          /\ UNCHANGED << coordState, votes, decision >>
+          /\ UNCHANGED << votes, decision >>
 
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == pc = "Done" /\ UNCHANGED vars
 
-Next == Run \/ Finish
+Next == CoLoop \/ Finish
            \/ Terminating
 
 Spec == Init /\ [][Next]_vars
@@ -84,11 +65,10 @@ Termination == <>(pc = "Done")
 \* END TRANSLATION 
 
 Inv ==
-  /\ pc \in PCs
-  /\ coordState \in CoordStates
+  /\ votes \in SUBSET RMIDs
   /\ decision \in Decisions
-  /\ votes \in [RMs -> VoteVals]
-  /\ (decision = "Commit") => (\A r \in RMs : votes[r] = "prepared")
+  /\ (decision = "commit") => (votes = RMIDs)
+  /\ pc \in {"CoLoop", "Finish", "Done"}
 
-Property == Inv
+Property == (decision = "commit") => (votes = RMIDs)
 ====

@@ -258,6 +258,7 @@ class RefineAgent:
                 "type": "tool",
                 "name": EMIT_PYTHON_MODULE_FOR_BUNDLE_TOOL["name"],
             },
+            stage="refine_child",
         )
         tool_use = self.client.extract_tool_use(
             response, expected_name=EMIT_PYTHON_MODULE_FOR_BUNDLE_TOOL["name"]
@@ -339,6 +340,7 @@ class RefineAgent:
                 "type": "tool",
                 "name": EMIT_PYTHON_APP_FOR_BUNDLE_TOOL["name"],
             },
+            stage="refine_parent",
         )
         tool_use = self.client.extract_tool_use(
             response, expected_name=EMIT_PYTHON_APP_FOR_BUNDLE_TOOL["name"]
@@ -373,6 +375,7 @@ class RefineAgent:
             messages=[{"role": "user", "content": [{"type": "text", "text": user_msg}]}],
             tools=[REFINE_TOOL],
             tool_choice={"type": "tool", "name": REFINE_TOOL["name"]},
+            stage="refine",
         )
         tool_use = self.client.extract_tool_use(response, expected_name=REFINE_TOOL["name"])
         data = tool_use.input

@@ -1,62 +1,43 @@
 ---- MODULE Store_Impl ----
-EXTENDS Integers, FiniteSets, Sequences, TLC
+EXTENDS Naturals, TLC, FiniteSets
+CONSTANTS Keys, Vals, NoVal
 
-CONSTANTS Keys, Values, Missing
+EmptyFn == [x \in {} |-> 0]
+IsPartialFn(f, Dom, Rng) == \E K \in SUBSET Dom : f \in [K -> Rng]
 
 (* --algorithm Store
-variables store = [k \in Keys |-> Missing];
+variables store = [x \in {} |-> 0];
 begin
   Loop:
     while TRUE do
       either
-        with k \in Keys, v \in Values do
-          store := [store EXCEPT ![k] = v];
+        with k \in Keys, v \in Vals do
+          store := [j \in (DOMAIN store) \cup {k} |-> IF j = k THEN v ELSE store[j]];
         end with;
       or
         skip;
       end either;
     end while;
-  Finish:
-    skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "44c1c1ba" /\ chksum(tla) = "b8925f26")
-VARIABLES store, pc
+\* BEGIN TRANSLATION (chksum(pcal) = "a4082779" /\ chksum(tla) = "597c849a")
+VARIABLE store
 
-vars == << store, pc >>
+vars == << store >>
 
 Init == (* Global variables *)
-        /\ store = [k \in Keys |-> Missing]
-        /\ pc = "Loop"
+        /\ store = [x \in {} |-> 0]
 
-Loop == /\ pc = "Loop"
-        /\ \/ /\ \E k \in Keys:
-                   \E v \in Values:
-                     store' = [store EXCEPT ![k] = v]
-           \/ /\ TRUE
-              /\ store' = store
-        /\ pc' = "Loop"
-
-Finish == /\ pc = "Finish"
-          /\ TRUE
-          /\ pc' = "Done"
-          /\ store' = store
-
-(* Allow infinite stuttering to prevent deadlock on termination. *)
-Terminating == pc = "Done" /\ UNCHANGED vars
-
-Next == Loop \/ Finish
-           \/ Terminating
+Next == \/ /\ \E k \in Keys:
+                \E v \in Vals:
+                  store' = [j \in (DOMAIN store) \cup {k} |-> IF j = k THEN v ELSE store[j]]
+        \/ /\ TRUE
+           /\ store' = store
 
 Spec == Init /\ [][Next]_vars
 
-Termination == <>(pc = "Done")
-
 \* END TRANSLATION 
 
-Inv ==
-  /\ store \in [Keys -> Values \cup {Missing}]
-  /\ pc \in {"Loop", "Finish", "Done"}
+Inv == IsPartialFn(store, Keys, Vals)
 
-Property == store \in [Keys -> Values \cup {Missing}]
-
+Property == IsPartialFn(store, Keys, Vals)
 ====

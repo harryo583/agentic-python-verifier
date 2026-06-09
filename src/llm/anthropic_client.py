@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
+
+from src.llm.usage import LLMCall, UsageLedger
 
 
 LOGGER = logging.getLogger(__name__)
@@ -75,11 +78,13 @@ class AnthropicClient:
         client: Optional[AnthropicProtocol] = None,
         fallback_model: Optional[str] = None,
         tertiary: Optional[TertiaryInvoker] = None,
+        ledger: Optional[UsageLedger] = None,
     ) -> None:
         self.model = model
         self.fallback_model = fallback_model
         self.tertiary = tertiary
         self.max_tokens = max_tokens
+        self.ledger = ledger
         if client is not None:
             self._client = client
         else:
@@ -93,11 +98,15 @@ class AnthropicClient:
         messages: list[dict[str, Any]],
         tools: Optional[list[dict[str, Any]]] = None,
         tool_choice: Optional[dict[str, Any]] = None,
+        stage: str = "unknown",
     ) -> Any:
         """Issue one Messages API call with the system prompt cached.
 
         Falls back to ``self.fallback_model`` on 529 OverloadedError, then
-        to ``self.tertiary`` on a second 529.
+        to ``self.tertiary`` on a second 529. When a :class:`UsageLedger` is
+        attached, one :class:`LLMCall` is recorded per round-trip tagged with
+        ``stage`` (the served model and token usage are read off the response,
+        so the fallback chain is accounted for at its real price).
         """
 
         system_blocks = [
@@ -118,8 +127,11 @@ class AnthropicClient:
         if tool_choice is not None:
             kwargs["tool_choice"] = tool_choice
 
+        started = time.monotonic()
         try:
-            return self._client.messages.create(**kwargs)
+            response = self._client.messages.create(**kwargs)
+            self._record(stage, response, started, degraded=False)
+            return response
         except Exception as primary_exc:
             if not _is_overloaded(primary_exc):
                 raise
@@ -134,8 +146,11 @@ class AnthropicClient:
                 )
                 fallback_kwargs = dict(kwargs)
                 fallback_kwargs["model"] = self.fallback_model
+                started_fb = time.monotonic()
                 try:
-                    return self._client.messages.create(**fallback_kwargs)
+                    response = self._client.messages.create(**fallback_kwargs)
+                    self._record(stage, response, started_fb, degraded=False)
+                    return response
                 except Exception as fallback_exc:
                     if not _is_overloaded(fallback_exc):
                         raise
@@ -149,12 +164,54 @@ class AnthropicClient:
                 getattr(self.tertiary, "model", type(self.tertiary).__name__),
             )
             assert self.tertiary is not None
-            return self.tertiary.message(
+            started_t = time.monotonic()
+            response = self.tertiary.message(
                 system=system,
                 messages=messages,
                 tools=tools,
                 tool_choice=tool_choice,
             )
+            # The tertiary (OpenAI) adapter returns no usage block; record the
+            # call as degraded so est_usd doesn't silently undercount.
+            self._record(stage, response, started_t, degraded=True)
+            return response
+
+    def _record(
+        self, stage: str, response: Any, started: float, degraded: bool
+    ) -> None:
+        """Append one LLMCall to the ledger (no-op when no ledger is attached)."""
+
+        if self.ledger is None:
+            return
+        latency = time.monotonic() - started
+        usage = _attr(response, "usage")
+        model_served = _attr(response, "model") or self.model
+        if degraded or usage is None:
+            self.ledger.record(
+                LLMCall(
+                    stage=stage,
+                    model_served=model_served,
+                    input_tokens=None,
+                    output_tokens=None,
+                    cache_read_tokens=None,
+                    cache_creation_tokens=None,
+                    latency_s=latency,
+                    degraded=True,
+                )
+            )
+            return
+        self.ledger.record(
+            LLMCall(
+                stage=stage,
+                model_served=model_served,
+                input_tokens=_attr(usage, "input_tokens"),
+                output_tokens=_attr(usage, "output_tokens"),
+                cache_read_tokens=_attr(usage, "cache_read_input_tokens"),
+                cache_creation_tokens=_attr(usage, "cache_creation_input_tokens"),
+                latency_s=latency,
+                degraded=False,
+            )
+        )
 
     @staticmethod
     def extract_tool_use(message: Any, expected_name: Optional[str] = None) -> ToolUse:

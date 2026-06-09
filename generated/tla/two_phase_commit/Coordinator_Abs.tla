@@ -1,57 +1,37 @@
 ---- MODULE Coordinator_Abs ----
 EXTENDS Naturals, FiniteSets
-CONSTANTS RMs
-VARIABLES coordState, votes, decision
 
-CoordStates == {"init", "preparing", "decided"}
-VoteVals == {"none", "prepared", "aborted"}
-Decisions == {"none", "Commit", "Abort"}
+CONSTANTS RMIDs, Decisions
 
-TypeOK ==
-  /\ coordState \in CoordStates
-  /\ votes \in [RMs -> VoteVals]
-  /\ decision \in Decisions
+VARIABLES votes, decision
 
-Init ==
-  /\ coordState = "init"
-  /\ votes = [r \in RMs |-> "none"]
+vars == << votes, decision >>
+
+Init == votes = {} /\ decision = "none"
+
+ReceivePrepared(r) ==
   /\ decision = "none"
-
-SendPrepare ==
-  /\ coordState = "init"
-  /\ coordState' = "preparing"
-  /\ UNCHANGED << votes, decision >>
-
-CollectVote(r, v) ==
-  /\ coordState = "preparing"
-  /\ votes[r] = "none"
-  /\ v \in {"prepared", "aborted"}
-  /\ votes' = [votes EXCEPT ![r] = v]
-  /\ UNCHANGED << coordState, decision >>
+  /\ r \in RMIDs
+  /\ votes' = votes \cup {r}
+  /\ UNCHANGED decision
 
 DecideCommit ==
-  /\ coordState = "preparing"
   /\ decision = "none"
-  /\ \A r \in RMs : votes[r] = "prepared"
-  /\ decision' = "Commit"
-  /\ coordState' = "decided"
+  /\ votes = RMIDs
+  /\ decision' = "commit"
   /\ UNCHANGED votes
 
 DecideAbort ==
-  /\ coordState = "preparing"
   /\ decision = "none"
-  /\ (\E r \in RMs : votes[r] = "aborted")
-  /\ decision' = "Abort"
-  /\ coordState' = "decided"
+  /\ decision' = "abort"
   /\ UNCHANGED votes
 
-Next == SendPrepare \/ (\E r \in RMs, v \in {"prepared","aborted"} : CollectVote(r, v)) \/ DecideCommit \/ DecideAbort
+Next == (\E r \in RMIDs : ReceivePrepared(r)) \/ DecideCommit \/ DecideAbort
 
-vars == << coordState, votes, decision >>
 Spec == Init /\ [][Next]_vars
 
 Inv ==
-  /\ TypeOK
-  /\ (decision = "Commit") => (\A r \in RMs : votes[r] = "prepared")
-Property == Inv
+  /\ votes \in SUBSET RMIDs
+  /\ decision \in Decisions
+  /\ (decision = "commit") => (votes = RMIDs)
 ====

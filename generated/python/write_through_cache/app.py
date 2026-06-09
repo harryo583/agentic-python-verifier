@@ -1,7 +1,4 @@
-"""Composed parent for WriteThroughCache. Property:
-  /\\ \\A k \\in Keys : Read(k) \\in Values \\cup {Missing}
-  /\\ \\A k \\in Keys : (cache[k] # Missing) => (Read(k) = store[k])
-"""
+"""Composed parent for WriteThroughCache. Property: Coherent /\\ StoreWellFormed /\\ CacheWellFormed."""
 
 from __future__ import annotations
 
@@ -15,104 +12,95 @@ from .cache import Cache
 
 random.seed(0)
 
-_KEYS = ["a", "b", "c"]
-_VALUES = [0, 1, 2, 3, 4, 5]
-_MISSING = 999
 
-
+@icontract.invariant(lambda self: set(self.store.store.keys()) <= set(self.store.keys))
+@icontract.invariant(lambda self: all(v in self.store.vals for v in self.store.store.values()))
+@icontract.invariant(lambda self: set(self.cache.cache.keys()) <= set(self.cache.keys))
+@icontract.invariant(lambda self: all(v in self.cache.vals for v in self.cache.cache.values()))
 @icontract.invariant(
     lambda self: all(
-        k in self.store.store
-        and (self.store.store[k] in self.store.values or self.store.store[k] == self.store.missing)
-        for k in self.store.keys
+        k in self.store.store and self.cache.cache[k] == self.store.store[k]
+        for k in self.cache.cache
     )
 )
-@icontract.invariant(
-    lambda self: all(
-        k in self.cache.cache
-        and (self.cache.cache[k] in self.cache.values or self.cache.cache[k] == self.cache.missing)
-        for k in self.cache.keys
-    )
-)
-@icontract.invariant(
-    lambda self: all(
-        self.cache.cache[k] == self.cache.missing
-        or self.cache.cache[k] == self.store.store[k]
-        for k in self.cache.keys
-    )
-)
-@icontract.invariant(lambda self: self.store.pc in {"Loop", "Finish", "Done"})
-@icontract.invariant(lambda self: self.cache.pc in {"Loop", "Finish", "Done"})
 class WriteThroughCache:
     def __init__(self) -> None:
-        self.store = Store(keys=_KEYS, values=_VALUES, missing=_MISSING)
-        self.cache = Cache(keys=_KEYS, values=_VALUES, missing=_MISSING)
+        keys = ["a", "b", "c"]
+        vals = [0, 1, 2, 3, 4, 5]
+        no_val = ["NoVal"]
+        self.store = Store(keys=keys, vals=vals, no_val=no_val)
+        self.cache = Cache(keys=keys, vals=vals, no_val=no_val)
+        self._keys = keys
+        self._vals = vals
         self._tick = 0
 
-    def read(self, k):
-        if self.cache.cache[k] != self.cache.missing:
-            return self.cache.cache[k]
-        return self.store.store[k]
+    def write_through(self, k, v) -> None:
+        """Atomic WriteThrough(k, v): update store and cache together."""
+        self.store.write_store(k, v)
+        self.cache.fill(k, v)
+        log_action(
+            "WriteThroughCache.WriteThrough",
+            {"k": k, "v": v, "store": dict(self.store.store), "cache": dict(self.cache.cache)},
+        )
+
+    def read_hit(self, k) -> None:
+        # No mutation; stutter on abstract vars.
+        log_action(
+            "WriteThroughCache.ReadHit",
+            {"k": k, "store": dict(self.store.store), "cache": dict(self.cache.cache)},
+        )
+
+    def read_miss(self, k) -> None:
+        """ReadMiss(k): k in store but not in cache; fill cache from store."""
+        self.cache.fill(k, self.store.store[k])
+        log_action(
+            "WriteThroughCache.ReadMiss",
+            {"k": k, "store": dict(self.store.store), "cache": dict(self.cache.cache)},
+        )
+
+    def read_absent(self, k) -> None:
+        log_action(
+            "WriteThroughCache.ReadAbsent",
+            {"k": k, "store": dict(self.store.store), "cache": dict(self.cache.cache)},
+        )
 
     def step(self) -> None:
-        """One atomic step of the composed system.
-
-        Picks either a Store action (S!Next with cache unchanged) or a
-        Cache action (C!Next with store unchanged). To preserve the joint
-        invariant CacheAgreesWithStore, cache puts only mirror the
-        store's current value at that key (or evict).
-        """
+        """One atomic step of the composed system, deterministic given fixed seed."""
+        # Deterministic schedule cycling through actions.
+        t = self._tick
         self._tick += 1
-        keys = list(self.store.keys)
+        k = self._keys[t % len(self._keys)]
 
-        # Alternate between store-side and cache-side transitions so that
-        # both children make progress while keeping each step atomic and
-        # joint-invariant-preserving.
-        if self._tick % 2 == 1:
-            # Store-side transition (UNCHANGED cache, pcC).
-            if self.store.pc == "Loop":
-                # Write a value into the store. We must keep
-                # CacheAgreesWithStore: if cache[k] is not missing then it
-                # must equal store[k] after the write. Safest choice: evict
-                # the cache entry first would be a cache-side action, so
-                # instead pick a key whose cache slot is already missing,
-                # or write a value matching the current cache slot.
-                k_idx = (self._tick // 2) % len(keys)
-                k = keys[k_idx]
-                if self.cache.cache[k] != self.cache.missing:
-                    # Write the same value the cache already holds to
-                    # preserve agreement.
-                    v = self.cache.cache[k]
-                else:
-                    v = self._tick % len(self.store.values)
-                self.store.write(k, v)
+        phase = t % 5
+        if phase == 0 or phase == 1:
+            # Write-through write.
+            v = self._vals[t % len(self._vals)]
+            self.write_through(k, v)
+        elif phase == 2:
+            # Read: hit if in cache, miss if in store only, absent otherwise.
+            if k in self.cache.cache:
+                self.read_hit(k)
+            elif k in self.store.store:
+                self.read_miss(k)
             else:
-                self.store.finish()
+                self.read_absent(k)
+        elif phase == 3:
+            # Try a different key to exercise miss/absent paths.
+            k2 = self._keys[(t + 1) % len(self._keys)]
+            if k2 in self.cache.cache:
+                self.read_hit(k2)
+            elif k2 in self.store.store:
+                self.read_miss(k2)
+            else:
+                self.read_absent(k2)
         else:
-            # Cache-side transition (UNCHANGED store, pcS).
-            if self.cache.pc == "Loop":
-                # Put the store's current value into the cache for some
-                # key (write-through fill), which trivially satisfies
-                # CacheAgreesWithStore.
-                k_idx = (self._tick // 2) % len(keys)
-                k = keys[k_idx]
-                v = self.store.store[k]
-                if v in self.cache.values:
-                    self.cache.put(k, v)
-                else:
-                    # store[k] is Missing; evict cache[k] to keep agreement.
-                    self.cache.evict(k)
-            else:
-                self.cache.noop()
+            # Another write-through to keep things lively.
+            v = self._vals[(t * 3) % len(self._vals)]
+            self.write_through(k, v)
 
         log_action(
             "WriteThroughCache.Step",
-            {
-                "store": dict(self.store.store),
-                "cache": dict(self.cache.cache),
-                "pcS": self.store.pc,
-                "pcC": self.cache.pc,
-            },
+            {"tick": t, "store": dict(self.store.store), "cache": dict(self.cache.cache)},
         )
 
 

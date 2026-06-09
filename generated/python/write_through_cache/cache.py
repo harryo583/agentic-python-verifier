@@ -1,7 +1,4 @@
-"""Generated from Cache_Impl.tla. Inductive Inv:
-  /\\ cache \\in [Keys -> Values \\cup {Missing}]
-  /\\ pc \\in {"Loop", "Finish", "Done"}
-"""
+"""Generated from Cache_Impl.tla. Inductive Inv: IsPartialFn(cache, Keys, Vals)."""
 
 from __future__ import annotations
 
@@ -11,38 +8,36 @@ from ._trace import log_action
 
 
 @icontract.invariant(
-    lambda self: all(
-        k in self.cache and (self.cache[k] in self.values or self.cache[k] == self.missing)
-        for k in self.keys
-    )
-    and set(self.cache.keys()) == set(self.keys)
+    lambda self: set(self.cache.keys()) <= set(self.keys)
+    and all(v in self.vals for v in self.cache.values())
 )
-@icontract.invariant(lambda self: self.pc in {"Loop", "Finish", "Done"})
 class Cache:
-    def __init__(self, keys, values, missing="__MISSING__") -> None:
-        self.keys = list(keys)
-        self.values = list(values)
-        self.missing = missing
-        self.cache = {k: missing for k in self.keys}
-        self.pc = "Loop"
+    def __init__(self, keys, vals, no_val=None) -> None:
+        self.keys = set(keys)
+        self.vals = set(vals)
+        self.no_val = no_val
+        self.cache: dict = {}
 
-    @icontract.require(lambda self, k, v: k in self.keys and v in self.values)
-    @icontract.require(lambda self: self.pc == "Loop")
-    def put(self, k, v) -> None:
-        self.cache[k] = v
-        log_action("Cache.Put", {"cache": dict(self.cache)})
+    @icontract.require(lambda self, k, v: k in self.keys and v in self.vals)
+    def fill(self, k, v) -> None:
+        new_cache = dict(self.cache)
+        new_cache[k] = v
+        self.cache = new_cache
+        log_action("Cache.Fill", {"cache": dict(self.cache)})
+
+    @icontract.require(lambda self, k, v: k in self.keys and v in self.vals)
+    def update(self, k, v) -> None:
+        new_cache = dict(self.cache)
+        new_cache[k] = v
+        self.cache = new_cache
+        log_action("Cache.Update", {"cache": dict(self.cache)})
 
     @icontract.require(lambda self, k: k in self.keys)
-    @icontract.require(lambda self: self.pc == "Loop")
-    def evict(self, k) -> None:
-        self.cache[k] = self.missing
-        log_action("Cache.Evict", {"cache": dict(self.cache)})
+    def invalidate(self, k) -> None:
+        new_cache = {j: val for j, val in self.cache.items() if j != k}
+        self.cache = new_cache
+        log_action("Cache.Invalidate", {"cache": dict(self.cache)})
 
-    @icontract.require(lambda self: self.pc in {"Loop", "Finish"})
-    def noop(self) -> None:
-        # Stutter step: do not log_action; abs vars unchanged.
-        if self.pc == "Loop":
-            # allow transitioning to Finish without changing cache
-            self.pc = "Finish"
-        elif self.pc == "Finish":
-            self.pc = "Done"
+    def lookup(self) -> None:
+        # Stutter step on abs vars: UNCHANGED cache. Do not log_action.
+        pass

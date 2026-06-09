@@ -4,41 +4,33 @@ EXTENDS Naturals, FiniteSets
 CONSTANTS Nodes, MaxTerm
 
 VARIABLES role, term
+
 vars == << role, term >>
 
-Roles == {"leader", "follower"}
-Leaders == { n \in Nodes : role[n] = "leader" }
-
 TypeOK ==
-  /\ role \in [Nodes -> Roles]
+  /\ role \in [Nodes -> {"leader", "follower"}]
   /\ term \in [Nodes -> 0..MaxTerm]
 
+Leaders == { n \in Nodes : role[n] = "leader" }
+AtMostOneLeader == Cardinality(Leaders) <= 1
+
 Init ==
-  /\ role = [n \in Nodes |-> "follower"]
+  /\ \E ldr \in Nodes :
+       role = [n \in Nodes |-> IF n = ldr THEN "leader" ELSE "follower"]
   /\ term = [n \in Nodes |-> 0]
 
-ElectLeader(n) ==
-  /\ Cardinality(Leaders) = 0
-  /\ role' = [role EXCEPT ![n] = "leader"]
-  /\ UNCHANGED term
+ElectLeader ==
+  /\ \E ldr \in Nodes :
+       LET maxT == CHOOSE m \in {term[n] : n \in Nodes} :
+                    \A n \in Nodes : term[n] <= m
+       IN /\ maxT < MaxTerm
+          /\ role' = [n \in Nodes |-> IF n = ldr THEN "leader" ELSE "follower"]
+          /\ term' = [n \in Nodes |-> maxT + 1]
 
-StepDown(n) ==
-  /\ role[n] = "leader"
-  /\ role' = [role EXCEPT ![n] = "follower"]
-  /\ UNCHANGED term
+StepDown == UNCHANGED vars
 
-BumpTerm(n) ==
-  /\ term[n] < MaxTerm
-  /\ term' = [m \in Nodes |-> term[n] + 1]
-  /\ UNCHANGED role
-
-Next ==
-  \/ \E n \in Nodes : ElectLeader(n)
-  \/ \E n \in Nodes : StepDown(n)
-  \/ \E n \in Nodes : BumpTerm(n)
-
+Next == ElectLeader \/ StepDown
 Spec == Init /\ [][Next]_vars
 
-Inv == TypeOK /\ Cardinality(Leaders) <= 1
-Property == Cardinality(Leaders) <= 1
+Inv == TypeOK /\ AtMostOneLeader
 ====

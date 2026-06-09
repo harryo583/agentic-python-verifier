@@ -13,6 +13,7 @@ from src.models.bundle import (
     ModuleBundle,
     TraceResult,
 )
+from src.llm.usage import UsageSummary
 from src.models.decomposition import DecompositionPlan
 from src.models.proof import ProofBundle
 from src.models.synthesis import SynthesisProposal
@@ -46,6 +47,7 @@ class PipelineResult(BaseModel):
     bundle: ProofBundle
     tla_path: Optional[Path] = None
     python_path: Optional[Path] = None
+    usage: Optional[UsageSummary] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -63,6 +65,9 @@ class CompositionalPipelineResult(BaseModel):
 
     status: Literal["verified", "unverified", "planner_failed", "refinement_failed"]
     iterations: int
+    # #1b/c — how many times the synth chain was abandoned and rerolled from a
+    # fresh propose_bundle (0 when reroll is disabled or never triggered).
+    reroll_count: int = 0
     plan: Optional[DecompositionPlan] = None
     bundle: Optional[ModuleBundle] = None
     proof: Optional[CompositionalProofBundle] = None
@@ -71,5 +76,6 @@ class CompositionalPipelineResult(BaseModel):
     traces: dict[str, TraceResult] = Field(default_factory=dict)
     trace_skipped_reason: Optional[str] = None
     note: str = ""
+    usage: Optional[UsageSummary] = None
 
     model_config = {"arbitrary_types_allowed": True}

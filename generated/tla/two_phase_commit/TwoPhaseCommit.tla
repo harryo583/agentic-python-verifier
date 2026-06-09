@@ -1,36 +1,49 @@
 ---- MODULE TwoPhaseCommit ----
-EXTENDS Naturals, Sequences, FiniteSets, TLC
+EXTENDS Naturals, FiniteSets, Sequences, TLC
 
-CONSTANTS RMs
+RMIDs == {"rm1", "rm2"}
+States == {"working", "prepared", "committed", "aborted"}
+Decisions == {"none", "commit", "abort"}
 
-VARIABLES rmState, coordState, votes, decision, pcRM, pcCo
+VARIABLES rm1State, rm2State, votes, decision, pcRM1, pcRM2, pcCo
 
-RM == INSTANCE ResourceManager_Impl WITH rmState <- rmState, pc <- pcRM
-CO == INSTANCE Coordinator_Impl WITH coordState <- coordState, votes <- votes, decision <- decision, pc <- pcCo
+RM1 == INSTANCE RM1_Impl WITH States <- States, rm1State <- rm1State, pc <- pcRM1
+RM2 == INSTANCE RM2_Impl WITH States <- States, rm2State <- rm2State, pc <- pcRM2
+Co  == INSTANCE Coordinator_Impl WITH RMIDs <- RMIDs, Decisions <- Decisions, votes <- votes, decision <- decision, pc <- pcCo
 
-vars == << rmState, coordState, votes, decision, pcRM, pcCo >>
+vars == << rm1State, rm2State, votes, decision, pcRM1, pcRM2, pcCo >>
 
-Init == RM!Init /\ CO!Init
-Next == (RM!Next /\ UNCHANGED << coordState, votes, decision, pcCo >>)
-        \/ (CO!Next /\ UNCHANGED << rmState, pcRM >>)
+Init ==
+  /\ RM1!Init
+  /\ RM2!Init
+  /\ Co!Init
+
+Next ==
+  \/ (RM1!Next /\ UNCHANGED << rm2State, votes, decision, pcRM2, pcCo >>)
+  \/ (RM2!Next /\ UNCHANGED << rm1State, votes, decision, pcRM1, pcCo >>)
+  \/ (Co!Next  /\ UNCHANGED << rm1State, rm2State, pcRM1, pcRM2 >>)
+
 Spec == Init /\ [][Next]_vars
 
-States == {"working", "prepared", "committed", "aborted"}
-Terminal(s) == s \in {"committed", "aborted"}
-
 Agreement ==
-  \A r1, r2 \in RMs :
-    (Terminal(rmState[r1]) /\ Terminal(rmState[r2])) => rmState[r1] = rmState[r2]
+  ~ ( (rm1State = "committed" /\ rm2State = "aborted")
+   \/ (rm1State = "aborted"   /\ rm2State = "committed") )
 
-CommittedImpliesDecision ==
-  (\E r \in RMs : rmState[r] = "committed") => (decision = "Commit")
+CommitImpliesDecision ==
+  (rm1State = "committed" \/ rm2State = "committed") => (decision = "commit")
 
 Inv ==
-  /\ RM!Inv
-  /\ CO!Inv
+  /\ rm1State \in States
+  /\ rm2State \in States
+  /\ decision \in Decisions
+  /\ votes \in SUBSET RMIDs
+  /\ pcRM1 \in {"RMLoop", "Finish", "Done"}
+  /\ pcRM2 \in {"RMLoop", "Finish", "Done"}
+  /\ pcCo  \in {"CoLoop", "Finish", "Done"}
+  /\ (decision = "commit") => (votes = RMIDs)
+  /\ (rm1State = "committed") => (decision = "commit")
+  /\ (rm2State = "committed") => (decision = "commit")
   /\ Agreement
-  /\ CommittedImpliesDecision
 
-Property == Agreement /\ CommittedImpliesDecision
-
+Property == Agreement /\ CommitImpliesDecision
 ====

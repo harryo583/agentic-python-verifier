@@ -1,31 +1,29 @@
 ---- MODULE Producer_Abs ----
 EXTENDS Naturals, Sequences
 
-CONSTANTS MaxItem
+CONSTANT MaxItem
 
 VARIABLES generated, nextItem
 
 vars == << generated, nextItem >>
 
-BoundedSeq(S, n) == UNION { [1..k -> S] : k \in 0..n }
+ExpectedSeqs == { [ i \in 1..n |-> i ] : n \in 0..MaxItem }
 
-Init ==
-  /\ generated = << >>
-  /\ nextItem = 1
+Init == /\ generated = << >>
+        /\ nextItem = 1
 
-Produce ==
-  /\ nextItem <= MaxItem
-  /\ generated' = Append(generated, nextItem)
-  /\ nextItem' = nextItem + 1
+Produce == /\ nextItem <= MaxItem
+           /\ generated' = Append(generated, nextItem)
+           /\ nextItem' = nextItem + 1
 
 Next == Produce
 
 Spec == Init /\ [][Next]_vars
 
-Inv ==
-  /\ nextItem \in 1..(MaxItem+1)
-  /\ generated \in BoundedSeq(1..MaxItem, MaxItem)
-  /\ Len(generated) = nextItem - 1
-  /\ \A i \in 1..Len(generated) : generated[i] = i
+Inv == /\ nextItem \in 1..(MaxItem+1)
+       /\ generated \in ExpectedSeqs
+       /\ Len(generated) = nextItem - 1
+
+Property == nextItem <= MaxItem + 1
 
 ====

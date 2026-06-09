@@ -6,77 +6,46 @@ CONSTANTS Clients, MaxReaders
 VARIABLES state, reader_count, client_state, pcL, pcC
 
 vars == << state, reader_count, client_state, pcL, pcC >>
+lockVars == << state, reader_count, pcL >>
+clientVars == << client_state, pcC >>
 
-ReadersSet == { c \in Clients : client_state[c] = "reading" }
-WritersSet == { c \in Clients : client_state[c] = "writing" }
+L == INSTANCE RWLock_Impl WITH state <- state, reader_count <- reader_count, pc <- pcL
+C == INSTANCE Clients_Impl WITH client_state <- client_state, pc <- pcC
 
-TypeOK ==
-  /\ state \in {"free","read","write"}
-  /\ reader_count \in 0..MaxReaders
-  /\ client_state \in [Clients -> {"idle","reading","writing"}]
+Init == L!Init /\ C!Init
 
-LockInit ==
-  /\ state = "free"
-  /\ reader_count = 0
-  /\ pcL = "Loop"
-
-ClientsInit ==
-  /\ client_state = [c \in Clients |-> "idle"]
-  /\ pcC = "Loop"
-
-Init == LockInit /\ ClientsInit
-
-LockStep ==
-  /\ pcL = "Loop"
-  /\ \/ /\ state \in {"free","read"}
-        /\ reader_count < MaxReaders
-        /\ state' = "read"
-        /\ reader_count' = reader_count + 1
-     \/ /\ state = "read"
-        /\ reader_count > 0
-        /\ reader_count' = reader_count - 1
-        /\ state' = IF reader_count - 1 = 0 THEN "free" ELSE "read"
-     \/ /\ state = "free"
-        /\ reader_count = 0
-        /\ state' = "write"
-        /\ UNCHANGED reader_count
-     \/ /\ state = "write"
-        /\ state' = "free"
-        /\ UNCHANGED reader_count
-  /\ pcL' = "Loop"
-  /\ UNCHANGED <<client_state, pcC>>
-
-ClientsStep ==
-  /\ pcC = "Loop"
-  /\ \E c \in Clients :
-       \/ /\ client_state[c] = "idle"
-          /\ \A o \in Clients : client_state[o] # "writing"
-          /\ client_state' = [client_state EXCEPT ![c] = "reading"]
-       \/ /\ client_state[c] = "reading"
-          /\ client_state' = [client_state EXCEPT ![c] = "idle"]
-       \/ /\ client_state[c] = "idle"
-          /\ \A o \in Clients : client_state[o] = "idle"
-          /\ client_state' = [client_state EXCEPT ![c] = "writing"]
-       \/ /\ client_state[c] = "writing"
-          /\ client_state' = [client_state EXCEPT ![c] = "idle"]
-  /\ pcC' = "Loop"
-  /\ UNCHANGED <<state, reader_count, pcL>>
-
-Next == LockStep \/ ClientsStep
+Next ==
+  \/ (L!Next /\ UNCHANGED clientVars)
+  \/ (C!Next /\ UNCHANGED lockVars)
 
 Spec == Init /\ [][Next]_vars
 
+ReadingClients == { c \in Clients : client_state[c] = "reading" }
+WritingClients == { c \in Clients : client_state[c] = "writing" }
+
+TypeOK ==
+  /\ state \in {"free", "read", "write"}
+  /\ reader_count \in 0..MaxReaders
+  /\ client_state \in [Clients -> {"idle", "reading", "writing"}]
+
+MutualExclusion ==
+  (state = "write") => (reader_count = 0 /\ Cardinality(WritingClients) <= 1)
+
+NoTornState ==
+  /\ (\E c \in Clients : client_state[c] = "reading") => (state = "read" /\ reader_count >= 1)
+  /\ (state = "free") => (reader_count = 0 /\ ReadingClients = {} /\ WritingClients = {})
+
+CountAgrees == reader_count = Cardinality(ReadingClients)
+
 Inv ==
   /\ TypeOK
-  /\ (state = "write") => (reader_count = 0 /\ Cardinality(WritersSet) <= 1)
-  /\ (state = "free") => (reader_count = 0 /\ ReadersSet = {} /\ WritersSet = {})
-  /\ (\E c \in Clients : client_state[c] = "reading") => (state = "read" /\ reader_count >= 1)
-  /\ (\E c \in Clients : client_state[c] = "writing") => (state = "write")
-  /\ Cardinality(WritersSet) <= 1
-  /\ ~(ReadersSet # {} /\ WritersSet # {})
+  /\ MutualExclusion
+  /\ NoTornState
+  /\ CountAgrees
 
 Property ==
-  /\ (state = "write") => (reader_count = 0 /\ Cardinality(WritersSet) <= 1)
-  /\ (\E c \in Clients : client_state[c] = "reading") => (state = "read" /\ reader_count >= 1)
-  /\ (state = "free") => (reader_count = 0 /\ ReadersSet = {} /\ WritersSet = {})
+  /\ MutualExclusion
+  /\ NoTornState
+  /\ CountAgrees
+
 ====

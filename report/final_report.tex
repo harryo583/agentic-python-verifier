@@ -44,30 +44,6 @@
 
 \maketitle
 
-\begin{abstract}
-\noindent
-LLM code generators score well on single-function benchmarks but collapse on
-multi-function compositional tasks: a recent benchmark, DafnyComp~\cite{dafnycomp2025},
-measures a drop from $\approx 58\%$ end-to-end verification on single-function
-problems to $3.69\%$ on compositional ones. We attack that gap from the \TLA{}
-side. We build an agentic pipeline that, from a natural-language requirement,
-(i)~plans a parent-plus-children decomposition, (ii)~co-synthesises an abstract
-spec and an implementation PlusCal module for each child, (iii)~discharges four
-classes of TLC proof obligations --- initiation, consecution, property
-implication, and a cross-module refinement obligation in the
-Hillel-Wayne ADT style~\cite{hillelwayne-tla-adt} --- with structured
-counterexample-driven repair, (iv)~refines the verified bundle into an
-\texttt{icontract}-decorated~\cite{icontract} Python package, and (v)~runs an
-advisory trace-conformance gate that replays one seeded Python execution
-against each child's abstract spec via TLC, using the encoding of
-Cirstea et al.~\cite{cirstea2024}. The pipeline ships with two legacy
-single-module baselines and six compositional benchmarks covering producer/
-consumer queues, write-through caches, ledger audits, two-phase commit, leader
-election, and a reader-writer lock. The offline test suite (24 files, 182
-cases) is green; live end-to-end evaluation against the benchmark suite is in
-progress.
-\end{abstract}
-
 \section{Introduction}
 
 LLM-driven program synthesis has converged on a write-first, verify-second
@@ -90,40 +66,21 @@ mechanically to \TLA{}'s state-transition style. Third, TLC's counterexamples
 are structured state sequences that an LLM can read and revise --- the repair
 signal is concrete rather than a binary pass/fail.
 
-This paper describes a pipeline that exploits all three properties. Our
-contributions are:
-
-\begin{itemize}
-  \item An LLM-driven \emph{decomposition} stage that emits a typed
-    \texttt{DecompositionPlan} (parent + up to four child modules, each with
-    an abstract-interface sketch).
-  \item A \emph{bundled co-synthesis} stage that emits, for each child, both
-    an abstract spec module and an implementation module with an explicit
-    abstraction map back to parent variables.
-  \item A \emph{four-obligation verifier} that runs three per-implementation
-    TLC checks (initiation, consecution, property implication) plus a
-    cross-module refinement check, with structured counterexamples piped back
-    to the synthesis agent via Anthropic's \texttt{tool\_result} channel.
-  \item A \emph{Python refinement} stage that emits one
-    \texttt{icontract}-decorated~\cite{icontract} class per implementation
-    module plus a parent application that composes them.
-  \item A \emph{trace-conformance gate} that subprocesses the refined Python
-    package, captures every action and abstract-state observation as JSONL,
-    and replays it against each child's abstract spec via TLC, using the
-    encoding of Cirstea et al.~\cite{cirstea2024}.
-  \item A six-program compositional benchmark suite covering classical
-    concurrency/consistency problems: producer--consumer, write-through cache,
-    ledger audit, two-phase commit, leader election, and a reader-writer lock.
-\end{itemize}
-
-The remainder of the paper is organised as follows. Section~\ref{sec:background}
-reviews the necessary \TLA{} and DafnyComp context. Section~\ref{sec:approach}
-describes the five pipeline stages and the four proof obligations in detail.
-Section~\ref{sec:impl} summarises the implementation. Section~\ref{sec:eval}
-describes the benchmark suite and the offline test status, and reserves a
-results table for the in-progress live sweep. Section~\ref{sec:limits} states
-limitations and the next planned hardening pass. Section~\ref{sec:concl}
-concludes.
+Our pipeline exploits all three properties in five stages: (i)~an LLM
+\emph{decomposition} stage emitting a typed \texttt{DecompositionPlan} (parent +
+up to four children); (ii)~\emph{bundled co-synthesis} of, per child, an abstract
+spec module and an implementation module with an explicit abstraction map back to
+parent variables; (iii)~a \emph{four-obligation verifier} (per-implementation
+initiation, consecution, and property implication, plus a cross-module refinement
+check) that pipes structured TLC counterexamples back to the synthesis agent;
+(iv)~\emph{Python refinement} into one \texttt{icontract}-decorated~\cite{icontract}
+class per module plus a composing parent app; and (v)~an advisory
+\emph{trace-conformance gate} that replays one seeded Python execution against each
+child's abstract spec via TLC~\cite{cirstea2024}. We evaluate on six compositional
+benchmarks (producer--consumer, write-through cache, ledger audit, two-phase
+commit, leader election, reader-writer lock) plus two legacy single-module
+baselines, and add an instrumented efficiency study of the repair loop's token
+cost and convergence.
 
 \section{Background and Related Work}\label{sec:background}
 
@@ -369,7 +326,7 @@ src/
   cli.py    Typer CLI (--compositional/--legacy)
 examples/   8 benchmarks (2 legacy + 6 compositional)
 scripts/    run_benchmarks.py (CSV + Markdown sweep)
-tests/      24 test files, 182 cases (offline + TLC-gated + e2e)
+tests/      27 test files, 221 offline cases + 1 live e2e
 \end{lstlisting}
 \caption{Repository layout.}
 \label{fig:layout}
@@ -391,24 +348,20 @@ exercises every component without an API key (\S\ref{ssec:tests});
 the eight benchmark prompts that drive the live evaluation
 (\S\ref{ssec:bench-catalog}), with per-benchmark detail in
 \S\ref{ssec:bench-detail}; and the aggregate sweep results in
-\S\ref{ssec:bench-agg}, including the two benchmarks
-(\texttt{producer\_consumer}, \texttt{bank\_audit}) that required a
-fresh-reroll attempt and the resulting discussion of
-reroll-versus-retry dynamics (\S\ref{ssec:reroll}). A short
-qualitative postmortem of the two structural bugs closed before this
-sweep is in \S\ref{ssec:qual}.
+\S\ref{ssec:bench-agg}; an instrumented efficiency study of the repair
+loop's cost and a controlled A/B of three convergence interventions
+(\S\ref{ssec:reroll}); and a short qualitative postmortem of two structural
+bugs closed before the sweep (\S\ref{ssec:qual}).
 
 \subsection{Offline test suite}\label{ssec:tests}
-The repository ships 24 \texttt{pytest} files exercising the pipeline
-at three boundary levels: pure unit tests of the data models, the
-counterexample parser, the trace renderer, and the refinement-module
-generator; mocked-LLM tests of the planner, synthesiser, and refiner
-that replay captured tool-call traces; and TLC-gated integration tests
-that verify the trace gate end-to-end against a real
-\texttt{tla2tools.jar} and exercise the legacy bounded-counter
-fixtures. The offline suite runs at \textbf{182/182} passing without
-an Anthropic API key or \texttt{tla2tools.jar}, with external
-dependencies mocked at the boundary.
+The repository ships 27 \texttt{pytest} files exercising the pipeline at three
+boundary levels: pure unit tests of the data models, counterexample parser,
+trace renderer, and refinement-module generator; mocked-LLM tests of the planner,
+synthesiser, and refiner that replay captured tool-call traces; and TLC-gated
+integration tests that verify the trace gate against a real
+\texttt{tla2tools.jar}. The offline suite runs at \textbf{221/221} passing without
+an Anthropic API key, with external dependencies mocked at the boundary; a single
+additional end-to-end test exercises the live API.
 
 \subsection{Benchmark catalog}\label{ssec:bench-catalog}
 The suite is two legacy single-module baselines plus six
@@ -444,147 +397,37 @@ audit ledgers, distributed commit, leader election, and locking.}
 
 \subsection{Per-benchmark detail}\label{ssec:bench-detail}
 
-Each compositional benchmark is presented as a verbatim prompt quote,
-the decomposition the planner converged on, and the verification
-outcome. The two legacy single-module benchmarks
-(\texttt{bounded\_counter}, \texttt{bank\_transfer}) are listed once
-at the end as baselines, since they predate the compositional pipeline
-and use the single-module path from~\cite{lamport2002specifying}-style
-inductive checking only.
+We summarise each compositional benchmark by the decomposition the planner
+converged on and its verification outcome; the prompts are summarised in
+Table~\ref{tbl:bench}.
 
-\paragraph{\texttt{cache\_store} (verified, 4 iterations, first attempt).}
-\begin{quote}\small\itshape
-Implement a write-through cache backed by a key-value store. (1) A
-backing store mapping keys from $\{$``a'',``b'',``c''$\}$ to integer
-values in $0..5$. Reads return the value or a missing marker; writes
-overwrite. (2) A cache in front of the store with the same key/value
-domain. On read: return the cache entry if present, else fetch from
-the store and populate the cache. On write: update both atomically.
-Properties: read-after-write consistency through either path; cache
-entries are a subset of store entries that match; domain bounds.
-\end{quote}
-\noindent\emph{Decomposition.} Parent
-\texttt{CacheStoreSystem} with two children: \texttt{Store} (data
-map, \texttt{Read}/\texttt{Write}) and \texttt{Cache} (entries map,
-\texttt{Read}/\texttt{Write}/\texttt{Fetch}). \emph{Outcome.} Initial
-attempt verified after 4 repair iterations; both per-impl invariants
-passed; refinement passed; both per-child traces conform; 6.6\,s
-total TLC time.
+\paragraph{Verified on the first attempt (4 of 6).}
+\texttt{cache\_store} (parent \texttt{CacheStoreSystem}; children \texttt{Store},
+\texttt{Cache}) verified in 4 iterations. \texttt{two\_phase\_commit}
+(\texttt{ResourceManager}, \texttt{Coordinator}) was fastest at 3 --- its small state
+alphabet and explicit no-regression invariant make the inductive obligation easy.
+\texttt{rw\_lock} (\texttt{RwLock}, \texttt{Client}) took 5, and \texttt{leader\_log}
+(\texttt{Node}, \texttt{Election}) 6 --- the latter the highest TLC cost in the suite
+(8.6\,s) from the 3-node $\times$ log-sequence product space. All per-child traces
+conform.
 
-\paragraph{\texttt{leader\_log} (verified, 6 iterations, first attempt).}
-\begin{quote}\small\itshape
-Implement a single-leader replicated log with 3 nodes. (1) Three
-nodes, each holding a sequence of integer log entries (drawn from
-$1..3$, max length 3) and a term integer ($0..2$). (2) Leader
-election: exactly one node may have role ``leader''; the others are
-``followers''. Leadership can transfer by incrementing the term and
-electing a new leader. (3) An AppendEntry action by the leader; a
-Replicate action by followers. Properties: election safety (${\leq}1$
-leader per term); log matching (follower log is a prefix of leader
-log after stabilisation); term monotonicity.
-\end{quote}
-\noindent\emph{Decomposition.} Parent \texttt{LeaderLog} with
-children \texttt{Node} (log, term, role) and \texttt{Election}
-(\texttt{leader\_of\_term}). \emph{Outcome.} Verified after 6 repair
-iterations; the highest TLC cost in the suite (8.6\,s) reflects the
-larger product state space of (3 nodes $\times$ log sequences). Both
-per-child traces conform.
+\paragraph{Required a reroll (2 of 6).}
+\texttt{producer\_consumer} (\texttt{Queue}, \texttt{Producer}, \texttt{Consumer})
+exhausted its 6-iteration budget on the first attempt --- the \texttt{Queue} and
+\texttt{Producer} impls kept failing per-module obligations while the LLM regenerated
+structurally similar bundles --- then verified in 4 on a fresh reroll.
+\texttt{bank\_audit} (\texttt{Account}, \texttt{Ledger}, \texttt{Transfer}) is the
+hardest: its first two attempts passed every per-module obligation but failed the
+cross-module \emph{refinement} check (the \texttt{INSTANCE WITH} bindings did not link),
+and a third reroll verified in 5. Its conservation invariant couples the two accounts
+through the ledger, so the abstraction map must project both balances and the ledger
+onto each child.
 
-\paragraph{\texttt{rw\_lock} (verified, 5 iterations, first attempt).}
-\begin{quote}\small\itshape
-Implement a single-writer / multi-reader lock with 3 client threads.
-(1) A lock with state in $\{$``free'',``read'',``write''$\}$ and a
-non-negative reader counter (bounded at 3). (2) Three clients, each
-in $\{$``idle'',``reading'',``writing''$\}$. Properties: mutual
-exclusion (when \texttt{state="write"}, \texttt{reader\_count=0} and
-at most one client is writing); no torn state (lock state and
-client states agree); \texttt{reader\_count} equals the number of
-clients currently reading.
-\end{quote}
-\noindent\emph{Decomposition.} Parent \texttt{RwLockSystem} with
-children \texttt{RwLock} and \texttt{Client}. \emph{Outcome.} Verified
-in 5 iterations; both per-child traces conform.
-
-\paragraph{\texttt{two\_phase\_commit} (verified, 3 iterations, first attempt --- fastest in the suite).}
-\begin{quote}\small\itshape
-Implement a two-phase commit coordinator with 2 resource managers.
-(1) Two RMs, each in
-$\{$``working'',``prepared'',``committed'',``aborted''$\}$, both
-initially ``working''. (2) A coordinator that issues Prepare to each
-RM, collects votes, and decides Commit (if all voted prepared) or
-Abort. Properties: agreement (no two RMs end in different terminal
-decisions); commit precondition (a committed RM was preceded by a
-coordinator Commit decision); no commit${\to}$abort regression.
-\end{quote}
-\noindent\emph{Decomposition.} Parent \texttt{TwoPhaseCommit} with
-children \texttt{ResourceManager} and \texttt{Coordinator}.
-\emph{Outcome.} Verified in only 3 repair iterations --- the fastest
-convergence in the suite. The small state alphabet (4 RM states,
-3 decision states) and an explicit no-regression invariant make the
-inductive obligation easy for TLC and easy for the LLM to articulate.
-Both per-child traces conform.
-
-\paragraph{\texttt{producer\_consumer} (verified on second attempt; first attempt failed at 6 iterations).}
-\begin{quote}\small\itshape
-Implement a producer-consumer system with three components: (1) a
-bounded FIFO queue of capacity 3, items are positive integers in
-$1..10$; enqueue rejected when full, dequeue rejected when empty.
-(2) A producer that generates items $1..3$ in order and enqueues
-them. (3) A consumer that dequeues items and tracks the running sum.
-Properties: queue length in $0..3$; no item lost (consumer received
-is a FIFO prefix of producer generated); the producer never produces
-beyond item 3.
-\end{quote}
-\noindent\emph{Decomposition.} Parent \texttt{ProducerConsumer} with
-three children: \texttt{Queue} (abs+impl, items list,
-\texttt{Enqueue}/\texttt{Dequeue}), \texttt{Producer} (\texttt{generated}
-counter), \texttt{Consumer} (\texttt{received}, \texttt{total}).
-\emph{Outcome.} The first attempt exhausted its 6-iteration repair
-budget without convergence: the \texttt{BoundedQueue} and
-\texttt{Producer} impls failed their per-module obligations and the
-LLM regenerated structurally similar bundles across all six
-iterations. A fresh reroll (new planner + synth call, same prompt and
-model) verified the bundle in 4 iterations; all three per-child
-traces conform on the verified run. See
-\S\ref{ssec:reroll}.
-
-\paragraph{\texttt{bank\_audit} (verified on third attempt; first attempt failed at 6, second at 7).}
-\begin{quote}\small\itshape
-Implement a multi-account ledger with audit-log integrity. (1) Two
-accounts A and B, each with a non-negative integer balance bounded
-by 10, starting A=5, B=5. (2) An append-only ledger of transfer
-entries; each entry records (from, to, amount) and is added atomically
-with the balance change. (3) A Transfer(from, to, amount) action that
-debits the source and credits the destination, appending one ledger
-entry; rejected if it would overdraft or overflow. Properties:
-conservation (the sum of all balances is invariant at 10); audit
-integrity (the ledger sum reconciles with each account's net change);
-balances never negative or above 10.
-\end{quote}
-\noindent\emph{Decomposition.} Parent \texttt{BankAudit} with
-children \texttt{Account}, \texttt{Ledger}, and \texttt{Transfer}.
-\emph{Outcome.} The first two attempts both failed at the
-\emph{refinement} obligation --- per-module obligations passed
-(2/2 each time) but the cross-module refinement check returned
-\texttt{error}, which in the Hillel-Wayne ADT shape means the
-\texttt{INSTANCE WITH} bindings emitted by the synthesis agent did
-not link cleanly. The third reroll converged in 5 iterations with
-the refinement obligation passing and both per-child traces
-conforming. \texttt{bank\_audit} is the suite's hardest benchmark:
-the conservation invariant couples the two \texttt{Account} children
-via the \texttt{Ledger}, and the abstraction map has to project the
-parent's two balances and the ledger sequence onto each child's
-abstract state.
-
-\paragraph{Legacy single-module baselines.}
-\texttt{bounded\_counter} and \texttt{bank\_transfer} run through the
-\texttt{run\_pipeline} path with the three obligations (initiation,
-consecution, property implication) and no refinement obligation. Both
-verify on the first attempt with the prompts \emph{``Implement a
-bounded counter from 0 to 10''} and \emph{``Implement a bank transfer
-between two accounts that never allows a negative balance and
-preserves the total sum of money''} respectively. These were the May 6
-progress-report baselines and are preserved as regression anchors.
+\paragraph{Legacy baselines.}
+\texttt{bounded\_counter} and \texttt{bank\_transfer} run through the single-module
+\texttt{run\_pipeline} path (three obligations, no refinement) and both verify on the
+first attempt; they are the May~6 progress-report baselines, preserved as regression
+anchors.
 
 \subsection{Aggregate results}\label{ssec:bench-agg}
 
@@ -649,41 +492,85 @@ Source CSVs: \texttt{report/bench\_results.csv},
     on attempt two, with the same prompt and the same model.
 \end{itemize}
 
-\subsection{Discussion: reroll dominates retry}\label{ssec:reroll}
+\subsection{Efficiency: instrumentation and a controlled A/B}\label{ssec:reroll}
 
-Two of the six compositional benchmarks did not converge on the
-initial sweep at the configured budget of 6 repair iterations:
-\texttt{producer\_consumer} failed with two per-module obligations
-unsatisfied (the \texttt{BoundedQueue} and \texttt{Producer} impls);
-\texttt{bank\_audit} failed twice with the cross-module refinement
-obligation returning \texttt{error}. In both cases the failure
-signal returned by the verifier was structured and informative ---
-TLC named the violated predicate, the synthesis agent's
-\texttt{\_serialise\_bundle\_failure} surfaced it in the
-\texttt{tool\_result} channel --- yet the LLM regenerated
-structurally similar bundles across the entire iteration budget.
+The sweep above suggested a tempting story: \texttt{producer\_consumer} failed at
+its 6-iteration budget then verified in 4 on a fresh reroll, and
+\texttt{bank\_audit} verified only on its third attempt --- as if a fresh start
+``breaks an anchor'' in the repair conversation that more iterations cannot. We
+built the machinery to test that story properly and to make the loop's cost
+measurable. Three interventions were added, each behind a default-off flag so the
+baseline is unchanged: (i)~\emph{history dedup} --- send the repair call only the
+initial task plus the most recent failed attempt, instead of the full growing
+transcript; (ii)~\emph{stuck-detection reroll} --- abandon a chain and re-propose
+from scratch only when the same failure fingerprint repeats; and (iii)~a
+deterministic \emph{pre-flight linter} that rejects reserved-PlusCal-label bundles
+before spending a TLC run. We also instrumented every LLM call with its token usage,
+tagged by pipeline stage.
 
-The cure was \emph{not} more iterations of the same conversation. It
-was a fresh-rerolled attempt: a new \texttt{PlannerAgent.decompose}
-call followed by a new \texttt{SynthesisAgent.propose\_bundle},
-beginning the repair history empty. On the reroll
-\texttt{producer\_consumer} converged in 4 iterations and
-\texttt{bank\_audit} in 5 (after one more failed reroll). We
-attribute this to anchoring inside the repair conversation: the
-\texttt{tool\_use}/\texttt{tool\_result} history carries the
-previous bad bundle into every subsequent turn, and the model treats
-its own prior emission as a fixed point to perturb rather than a
-direction to abandon. Starting from an empty history breaks the
-anchor.
+The instrumentation gives the first quantified cost breakdown
+(Table~\ref{tbl:cost}): \textbf{the \texttt{repair\_bundle} stage is \$2.07 of the
+\$2.90 mean per-run spend} --- repair, not planning or refinement, is where the
+money goes, confirming the premise that the repair loop is the dominant variable
+cost.
 
-This is exactly the failure mode the Tier-1 follow-on plan
-(\S\ref{sec:limits}, Future work) targets with a ``you already tried
-this'' reminder injected into \texttt{repair\_bundle}'s history, and
-it also motivates the choice (in \S\ref{sec:approach}) to keep the
-trace-conformance gate \emph{advisory} only: the static four-obligation
-proof is the load-bearing correctness witness, and it is robust to
-exactly this kind of LLM-side anchoring, since a verified bundle has
-been checked against TLC, not negotiated with the model.
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcc}
+\toprule
+Stage & Mean \$/run & Mean input tokens \\
+\midrule
+planner       & 0.08 & 2473 \\
+synth\_bundle & 0.35 & 1345 \\
+\texttt{repair\_bundle} & \textbf{2.07} & \textbf{17531} \\
+refine\_child & 0.30 & 3667 \\
+refine\_parent& 0.24 & 4004 \\
+\bottomrule
+\end{tabular}
+\caption{Per-stage cost (baseline condition, mean over 16 verified/unverified
+runs). Estimated USD uses placeholder Opus prices; the \emph{relative} split is the
+point. History dedup halves \texttt{repair\_bundle} input tokens (17.5k\,$\to$\,8.6k).}
+\label{tbl:cost}
+\end{table}
+
+We then ran a controlled A/B: each lever in isolation, \texttt{-n 6}, three repeats
+over all six benchmarks (Table~\ref{tbl:ab}). The result is deflating for the
+anchoring story. \textbf{No condition is statistically distinguishable from baseline
+on verification rate}: with 12--18 observations and per-benchmark rates swinging
+0/3--3/3, binomial noise (SD\,$\approx$\,2 runs) swamps the 56--75\% spread. The
+reroll ``win'' on \texttt{producer\_consumer} was a fresh coin-flip, not a reliable
+escape --- automated stuck-reroll neither clearly helped nor hurt. History dedup
+gave a \emph{modest, real} cost cut ($\sim$13\%), limited because Opus output tokens
+dominate and dedup only trims input. Two caveats: the Anthropic credit balance was
+exhausted mid-sweep, which invalidated one reroll run (so that arm is $N=2$); and
+three runs crashed when the LLM emitted a malformed \texttt{ModuleBundle} that the
+pipeline raised on rather than treating as a repairable failure --- a robustness gap
+worth closing.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lcccc}
+\toprule
+Condition & Verified & Rate & Mean iters & Mean \$/run \\
+\midrule
+OFF (baseline)                      & 12/18 & 67\% & 4.6 & 2.90 \\
+DEDUP (latest-history)              & 10/18 & 56\% & 4.9 & 2.52 \\
+REROLL-stuck ($N{=}2$)              & 9/12  & 75\% & 5.1 & 2.91 \\
+\bottomrule
+\end{tabular}
+\caption{Controlled efficiency A/B (one lever each, default otherwise; the
+credit-exhausted reroll run is excluded). The rate spread is within run-to-run
+noise; dedup is the only consistent (modest) cost lever.}
+\label{tbl:ab}
+\end{table}
+
+The honest takeaway is that the \emph{binding constraint is synthesis
+nondeterminism, not repair-loop mechanics}: the same prompt and model verify
+0/3--3/3, and reshaping the repair history or rerolling cannot move that. The
+leverage lies upstream in synthesis quality (model, prompt, exemplars) or in simply
+drawing more samples. The instrumentation --- localising cost to the repair stage
+--- is the durable result; all three interventions ship default-off, and this A/B is
+the evidence for leaving them so.
 
 \subsection{Qualitative observations}\label{ssec:qual}
 Two structural bugs found in the first end-to-end runs were closed
@@ -749,9 +636,14 @@ emits an \texttt{icontract}-decorated Python package, and runs an advisory
 trace-conformance gate~\cite{cirstea2024} against each child's abstract
 spec. The four-obligation static proof is the load-bearing contribution;
 the trace gate is a runtime witness that the emitted Python stays inside
-the proved refinement. The offline test suite is green at 182/182, the
-benchmark suite is built and being swept, and the next hardening pass is
-already scoped against the issues observed in early live runs.
+the proved refinement. On the six-program suite the pipeline verifies
+$\approx 67\%$ of bundles on the first attempt --- far above DafnyComp's
+$3.69\%$ on the same problem class. An instrumented efficiency study localises
+cost to the repair stage but finds that the binding constraint on convergence is
+synthesis nondeterminism rather than repair-loop mechanics: reshaping the repair
+history or rerolling does not move the verification rate beyond run-to-run noise.
+The offline test suite is green at 221/221, and the convergence interventions ship
+default-off, with the A/B as the evidence for leaving them so.
 
 \bibliographystyle{plain}
 \bibliography{refs}

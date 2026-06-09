@@ -1,118 +1,100 @@
-"""Composed parent for TwoPhaseCommit. Property: Agreement /\\ CommittedImpliesDecision."""
+"""Composed parent for TwoPhaseCommit. Property: Agreement /\\ CommitImpliesDecision."""
 
 from __future__ import annotations
 
 import icontract
 
 from ._trace import log_action
-from .resource_manager import ResourceManager
+from .rm1 import RM1
+from .rm2 import RM2
 from .coordinator import Coordinator
 
 
-TERMINAL = {"committed", "aborted"}
-
-
+@icontract.invariant(lambda self: self.rm1.rm1State in {"working", "prepared", "committed", "aborted"})
+@icontract.invariant(lambda self: self.rm2.rm2State in {"working", "prepared", "committed", "aborted"})
+@icontract.invariant(lambda self: self.co.decision in {"none", "commit", "abort"})
+@icontract.invariant(lambda self: set(self.co.votes) <= {"rm1", "rm2"})
+@icontract.invariant(lambda self: self.rm1.pc in {"RMLoop", "Finish", "Done"})
+@icontract.invariant(lambda self: self.rm2.pc in {"RMLoop", "Finish", "Done"})
+@icontract.invariant(lambda self: self.co.pc in {"CoLoop", "Finish", "Done"})
 @icontract.invariant(
-    lambda self: all(
-        (self.rm.rmState[r1] == self.rm.rmState[r2])
-        for r1 in self.rm.RMs
-        for r2 in self.rm.RMs
-        if self.rm.rmState[r1] in TERMINAL and self.rm.rmState[r2] in TERMINAL
+    lambda self: (self.co.decision != "commit") or (set(self.co.votes) == {"rm1", "rm2"})
+)
+@icontract.invariant(
+    lambda self: (self.rm1.rm1State != "committed") or (self.co.decision == "commit")
+)
+@icontract.invariant(
+    lambda self: (self.rm2.rm2State != "committed") or (self.co.decision == "commit")
+)
+@icontract.invariant(
+    lambda self: not (
+        (self.rm1.rm1State == "committed" and self.rm2.rm2State == "aborted")
+        or (self.rm1.rm1State == "aborted" and self.rm2.rm2State == "committed")
     )
 )
-@icontract.invariant(
-    lambda self: (not any(self.rm.rmState[r] == "committed" for r in self.rm.RMs))
-    or (self.co.decision == "Commit")
-)
 class TwoPhaseCommit:
-    def __init__(self, RMs=("r1", "r2")) -> None:
-        self.RMs = tuple(RMs)
-        self.rm = ResourceManager(RMs=self.RMs)
-        self.co = Coordinator(rms=self.RMs)
-        self._phase = 0
+    def __init__(self) -> None:
+        self.rm1 = RM1(States={"working", "prepared", "committed", "aborted"})
+        self.rm2 = RM2(states={"working", "prepared", "committed", "aborted"})
+        self.co = Coordinator(
+            RMIDs={"rm1", "rm2"},
+            Decisions={"none", "commit", "abort"},
+        )
 
     def step(self) -> None:
-        """One atomic step of the composed 2PC system.
+        """One atomic step of the composed 2PC protocol.
 
-        Drives a deterministic happy-path commit:
-          1. Coordinator sends prepare.
-          2. Each RM prepares (atomic with collecting its vote at the coordinator).
-          3. Coordinator decides commit once all votes are prepared.
-          4. Each RM receives the commit decision.
+        Drives the happy-path: each RM prepares, the coordinator collects votes,
+        decides commit, then each RM applies the commit. After completion the
+        step is a no-op so further ticks keep all invariants stable.
         """
-        # Phase 0: coordinator broadcasts prepare.
-        if self.co.coordState == "init":
-            self.co.send_prepare()
-            log_action(
-                "TwoPhaseCommit.Step",
-                {
-                    "rmState": dict(self.rm.rmState),
-                    "coordState": self.co.coordState,
-                    "votes": dict(self.co.votes),
-                    "decision": self.co.decision,
-                },
-            )
-            return
-
-        # Phase 1: for each working RM, atomically prepare + collect its vote.
-        for r in self.RMs:
-            if self.rm.rmState[r] == "working" and self.co.votes[r] == "none":
-                self.rm.prepare(r)
-                self.co.collect_vote(r, "prepared")
-                log_action(
-                    "TwoPhaseCommit.Step",
-                    {
-                        "rmState": dict(self.rm.rmState),
-                        "coordState": self.co.coordState,
-                        "votes": dict(self.co.votes),
-                        "decision": self.co.decision,
-                    },
-                )
-                return
-
-        # Phase 2: decide commit once all votes are prepared.
-        if (
-            self.co.coordState == "preparing"
+        # Phase 1: RM1 prepares
+        if self.rm1.rm1State == "working" and self.rm1.pc == "RMLoop":
+            self.rm1.prepare()
+        # Phase 1: RM2 prepares
+        elif self.rm2.rm2State == "working":
+            self.rm2.prepare()
+        # Phase 2: coordinator collects RM1's vote
+        elif (
+            self.co.pc == "CoLoop"
             and self.co.decision == "none"
-            and all(self.co.votes[r] == "prepared" for r in self.RMs)
+            and "rm1" not in self.co.votes
+        ):
+            self.co.receive_prepared("rm1")
+        # Phase 2: coordinator collects RM2's vote
+        elif (
+            self.co.pc == "CoLoop"
+            and self.co.decision == "none"
+            and "rm2" not in self.co.votes
+        ):
+            self.co.receive_prepared("rm2")
+        # Phase 3: coordinator decides commit once all votes are in
+        elif (
+            self.co.pc == "CoLoop"
+            and self.co.decision == "none"
+            and set(self.co.votes) == {"rm1", "rm2"}
         ):
             self.co.decide_commit()
-            log_action(
-                "TwoPhaseCommit.Step",
-                {
-                    "rmState": dict(self.rm.rmState),
-                    "coordState": self.co.coordState,
-                    "votes": dict(self.co.votes),
-                    "decision": self.co.decision,
-                },
-            )
-            return
+        # Phase 4: RMs apply the commit (only after decision = commit, preserving Inv)
+        elif (
+            self.co.decision == "commit"
+            and self.rm1.rm1State == "prepared"
+            and self.rm1.pc == "RMLoop"
+        ):
+            self.rm1.apply_commit()
+        elif (
+            self.co.decision == "commit"
+            and self.rm2.rm2State == "prepared"
+        ):
+            self.rm2.apply_commit()
+        # else: protocol complete; idle step
 
-        # Phase 3: propagate commit to each RM. Safe because decision == "Commit"
-        # already holds before any RM transitions to "committed", preserving
-        # CommittedImpliesDecision.
-        if self.co.decision == "Commit":
-            for r in self.RMs:
-                if self.rm.rmState[r] == "prepared":
-                    self.rm.receive_commit(r)
-                    log_action(
-                        "TwoPhaseCommit.Step",
-                        {
-                            "rmState": dict(self.rm.rmState),
-                            "coordState": self.co.coordState,
-                            "votes": dict(self.co.votes),
-                            "decision": self.co.decision,
-                        },
-                    )
-                    return
-
-        # Stuttering: system has reached a terminal committed state.
         log_action(
             "TwoPhaseCommit.Step",
             {
-                "rmState": dict(self.rm.rmState),
-                "coordState": self.co.coordState,
-                "votes": dict(self.co.votes),
+                "rm1State": self.rm1.rm1State,
+                "rm2State": self.rm2.rm2State,
+                "votes": sorted(self.co.votes),
                 "decision": self.co.decision,
             },
         )

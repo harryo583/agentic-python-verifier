@@ -7,33 +7,32 @@ VARIABLES log
 
 vars == << log >>
 
-Entry == [from: Accts, to: Accts, amount: Amounts]
+EntryT == [from: Accts, to: Accts, amount: Amounts]
 
-BoundedLog == UNION { [1..n -> Entry] : n \in 0..MaxLogLen }
+BoundedSeq == UNION { [1..n -> EntryT] : n \in 0..MaxLogLen }
 
-TypeOK == log \in BoundedLog
+TypeOK == log \in BoundedSeq
 
 Init == log = << >>
 
-DoAppend(f, t, amt) ==
-  /\ f \in Accts /\ t \in Accts /\ f # t
-  /\ amt \in Amounts
+Append1(e) ==
+  /\ e \in EntryT
+  /\ e.from # e.to
   /\ Len(log) < MaxLogLen
-  /\ log' = Append(log, [from |-> f, to |-> t, amount |-> amt])
+  /\ log' = Append(log, e)
 
-Next ==
-  \/ \E f, t \in Accts, amt \in Amounts : DoAppend(f, t, amt)
-  \/ UNCHANGED vars
+Next == \E e \in EntryT: Append1(e)
 
 Spec == Init /\ [][Next]_vars
 
 WellFormed ==
-  \A i \in 1..Len(log) :
+  \A i \in 1..Len(log):
+    /\ log[i].amount \in Amounts
     /\ log[i].from # log[i].to
-    /\ log[i].amount > 0
 
-Inv == TypeOK /\ WellFormed
+Inv ==
+  /\ TypeOK
+  /\ WellFormed
 
 Property == WellFormed
-
 ====

@@ -1,53 +1,45 @@
 ---- MODULE ResourceManager_Impl ----
-EXTENDS Naturals, Sequences, FiniteSets, TLC
-CONSTANTS RMs
-
-States == {"working", "prepared", "committed", "aborted"}
-PCs == {"Loop", "Finish", "Done"}
+EXTENDS Naturals
 
 (* --algorithm ResourceManager
-variables rmState = [r \in RMs |-> "working"];
+variables rmState = "working";
 begin
   Loop:
     while TRUE do
-      with r \in RMs do
-        either
-          await rmState[r] = "working";
-          rmState[r] := "prepared";
-        or
-          await rmState[r] = "working";
-          rmState[r] := "aborted";
-        or
-          await rmState[r] = "prepared";
-          rmState[r] := "committed";
-        or
-          await rmState[r] \in {"working", "prepared"};
-          rmState[r] := "aborted";
-        end either;
-      end with;
+      either
+        await rmState = "working";
+        rmState := "prepared";
+      or
+        await rmState = "prepared";
+        rmState := "committed";
+      or
+        await rmState \in {"working","prepared"};
+        rmState := "aborted";
+      or
+        skip;
+      end either;
     end while;
   Finish:
     skip;
 end algorithm; *)
-\* BEGIN TRANSLATION (chksum(pcal) = "825e84af" /\ chksum(tla) = "893ed23b")
+\* BEGIN TRANSLATION (chksum(pcal) = "c3d735c5" /\ chksum(tla) = "a423ba55")
 VARIABLES rmState, pc
 
 vars == << rmState, pc >>
 
 Init == (* Global variables *)
-        /\ rmState = [r \in RMs |-> "working"]
+        /\ rmState = "working"
         /\ pc = "Loop"
 
 Loop == /\ pc = "Loop"
-        /\ \E r \in RMs:
-             \/ /\ rmState[r] = "working"
-                /\ rmState' = [rmState EXCEPT ![r] = "prepared"]
-             \/ /\ rmState[r] = "working"
-                /\ rmState' = [rmState EXCEPT ![r] = "aborted"]
-             \/ /\ rmState[r] = "prepared"
-                /\ rmState' = [rmState EXCEPT ![r] = "committed"]
-             \/ /\ rmState[r] \in {"working", "prepared"}
-                /\ rmState' = [rmState EXCEPT ![r] = "aborted"]
+        /\ \/ /\ rmState = "working"
+              /\ rmState' = "prepared"
+           \/ /\ rmState = "prepared"
+              /\ rmState' = "committed"
+           \/ /\ rmState \in {"working","prepared"}
+              /\ rmState' = "aborted"
+           \/ /\ TRUE
+              /\ UNCHANGED rmState
         /\ pc' = "Loop"
 
 Finish == /\ pc = "Finish"
@@ -67,9 +59,11 @@ Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
 
-Inv ==
-  /\ pc \in PCs
-  /\ rmState \in [RMs -> States]
+States == {"working","prepared","committed","aborted"}
 
-Property == Inv
+Inv ==
+  /\ rmState \in States
+  /\ pc \in {"Loop","Finish","Done"}
+
+Property == rmState \in States
 ====
