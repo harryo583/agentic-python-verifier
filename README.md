@@ -48,6 +48,12 @@ back to the synthesis agent via Anthropic's `tool_result` channel; the agent
 emits a repaired bundle through the `repair_module_bundle` tool. The loop
 terminates when all obligations pass or the iteration cap is reached.
 
+When `ENABLE_PREFLIGHT` is set, a deterministic pre-flight linter
+(`src/formal/preflight.py`) runs before TLC and rejects bundles that use
+reserved PlusCal labels (`Done`, `Error`, `Lbl_<N>`); a lint failure is
+surfaced as a failing `CompositionalProofBundle` so it flows through the same
+repair loop as a real counterexample.
+
 ## Trace conformance (Week 3)
 
 After refinement, the emitted Python package is subprocessed once with a
@@ -118,6 +124,12 @@ prompt --------> | PlannerAgent.decompose          | Claude Opus 4.7
             +---------------+-----------------------+
                             v
             +---------------------------------------+
+            | smoke_test_package                    |
+            |   subprocess app.run(steps=1)         |
+            |   crash -> status="refinement_failed" |
+            +---------------+-----------------------+
+                            v
+            +---------------------------------------+
             | TraceGate.check (Week 3):             |
             |   subprocess python <pkg>/app.py      |
             |   read trace.jsonl                    |
@@ -150,6 +162,13 @@ export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 ```
 
+`TLA_TLC_JAR` is accepted as an alias for `TLA2TOOLS_JAR`. Additional optional
+tuning env vars (all have defaults): `AGENT_MAX_ITERATIONS=5`,
+`TLC_TIMEOUT_S=120`, `TRACE_TIMEOUT_S=30`, `TRACE_STEPS=50`,
+`TRACE_MAX_ENTRIES=200`, `LOG_LEVEL=INFO`. The efficiency / repair-loop toggles
+(`ENABLE_PREFLIGHT`, `ENABLE_REROLL`, …) are documented under
+[Efficiency instrumentation and repair-loop controls](#efficiency-instrumentation-and-repair-loop-controls).
+
 ## Usage
 
 ```bash
@@ -174,8 +193,8 @@ Options:
 --verbose, -v           Verbose logging
 ```
 
-Exit codes: `0` on `status="verified"`, `1` on `unverified` or
-`planner_failed`, `2` on missing configuration.
+Exit codes: `0` on `status="verified"`; `1` on `unverified`, `planner_failed`,
+or `refinement_failed`; `2` on missing configuration.
 
 Outputs:
 
@@ -195,10 +214,19 @@ python scripts/run_benchmarks.py --only producer_consumer
 python scripts/run_benchmarks.py --skip-trace-gate --max-iterations 5
 ```
 
-CSV columns: `slug, status, iterations, n_modules, n_impls, ref_status,
-per_module_pass, per_module_fail, trace_conform, trace_diverged,
-trace_inv_violated, trace_other, pipeline_seconds, total_tlc_seconds,
-error_note`. A Markdown summary is also printed to stdout.
+Two CSVs are written. The main `<out>.csv` columns are: `slug, status,
+iterations, reroll_count, n_modules, n_impls, ref_status, per_module_pass,
+per_module_fail, trace_conform, trace_diverged, trace_inv_violated,
+trace_other, pipeline_seconds, total_tlc_seconds, llm_calls, input_tokens,
+output_tokens, cached_read_tokens, est_usd, error_note`. A companion
+`<out>_by_stage.csv` breaks the LLM cost/latency down per pipeline stage:
+`slug, stage, calls, input_tokens, output_tokens, cache_read_tokens,
+cache_creation_tokens, latency_s, est_usd, degraded_calls`. A Markdown summary
+is also printed to stdout.
+
+The sweep runs the six compositional benchmarks (the subdirectories under
+`examples/`); the two legacy single-module baselines are run via `--legacy` on
+the CLI, not by the sweep.
 
 ## Benchmark suite
 
@@ -219,6 +247,29 @@ Two legacy single-module baselines + six compositional benchmarks under
 Each new benchmark ships `prompt.txt` plus `expected_modules.yaml` (reference
 decomposition; used for evaluation diff, not driven into the pipeline).
 
+## Efficiency instrumentation and repair-loop controls
+
+Every LLM call is tagged with a `stage` label and recorded by the usage ledger
+(`src/llm/usage.py`; see [Tool stack](#tool-stack)). The resulting
+`UsageSummary` is attached to every pipeline result and surfaced in the
+benchmark CSVs.
+
+Several repair-loop / cost levers are exposed as environment variables. All
+default to the original behaviour, and **none are CLI flags**:
+
+| Env var | Default | Effect |
+| ------- | ------- | ------ |
+| `REPAIR_HISTORY_MODE` | `full` | `latest` truncates the repair transcript sent back to the agent (less anchoring, fewer input tokens). |
+| `ENABLE_REROLL` | `false` | On exhausting `--max-iterations`, reroll a fresh synthesis chain instead of giving up (adds `reroll_count` to the result). |
+| `REPAIRS_PER_CHAIN` | `2` | Repair attempts per chain before a reroll. |
+| `ENABLE_PREFLIGHT` | `false` | Run the deterministic PlusCal-label linter (`src/formal/preflight.py`) before TLC; failures flow through the normal repair loop. |
+| `FEW_SHOT_ENABLED` | `false` | Append frozen worked-example blocks from `examples_pool/` to the cached synth/repair prompts. Inactive until the pool is populated (it ships empty). |
+
+These levers were measured in an A/B efficiency study; per-condition results
+live in `report/ab_*.csv` and are summarised in `report/ab_summary.md`.
+`scripts/build_exemplar.py` regenerates the leakage-safe, suite-disjoint
+exemplar pool used by `FEW_SHOT_ENABLED`.
+
 ## Project layout
 
 ```
@@ -237,14 +288,17 @@ src/
     refinement.py       Generates Refinement_<Parent>.tla per Hillel Wayne
     trace_renderer.py   JSONL -> Trace_<Name>.tla per Cirstea et al. 2024
     trace_postcondition.py  TLC stdout -> TraceOutcome (depth-parsing)
+    preflight.py        Deterministic PlusCal-label linter (gated by ENABLE_PREFLIGHT)
   llm/
     anthropic_client.py Anthropic SDK wrapper + prompt caching + fallback
     openai_adapter.py   OpenAI tertiary adapter (translates tool_use shape)
     tools.py            JSONSchema for every function-calling tool
-    prompts.py          System prompts: planner, synth, refine, app
+    prompts.py          System prompts: planner, synth, repair, refine, app
+    usage.py            Per-call token/latency/cost ledger -> UsageSummary
+    few_shot.py         Frozen, suite-disjoint exemplars -> worked-example blocks
   models/
     task.py             TaskRequest, PipelineResult, CompositionalPipelineResult
-    decomposition.py    DecompositionPlan, ModuleSpec, AbstractInterface
+    decomposition.py    DecompositionPlan, PlanModuleSpec, AbstractInterface
     synthesis.py        Constants, SynthesisProposal, RepairProposal
     bundle.py           ModuleBundle, CompositionalProofBundle,
                         PythonPackage, TraceResult
@@ -253,8 +307,10 @@ src/
   main.py               Pipeline orchestrators (legacy + compositional)
   cli.py                Typer CLI
 
-scripts/run_benchmarks.py   Sweep examples/* -> CSV + Markdown summary
+scripts/run_benchmarks.py   Sweep examples/* -> CSV (+ per-stage CSV) + Markdown
+scripts/build_exemplar.py   Build the leakage-safe few-shot exemplar pool
 examples/                   Benchmark prompts + expected_modules.yaml
+examples_pool/              Frozen few-shot exemplars (disjoint from examples/)
 tests/                      Unit + mocked + TLC-gated + LLM-gated integration
 ```
 
@@ -266,6 +322,10 @@ fixtures, so it runs without an API key or `tla2tools.jar`:
 ```bash
 pytest tests/
 ```
+
+This covers the pipeline, synthesis/repair, and the most recent features — the
+preflight linter, few-shot rendering, and usage accounting (`test_preflight.py`,
+`test_few_shot.py`, `test_usage.py`).
 
 TLC integration tests exercise the trace renderer end-to-end against a real
 `tla2tools.jar`:
@@ -302,6 +362,9 @@ pytest tests/test_e2e.py
   (`@invariant` per Inv conjunct, `@require` / `@ensure` per method).
 - **Trace pattern:** Cirstea et al. 2024 (arXiv 2404.16075) — JSONL action
   log + per-child Trace_<Name>.tla replayed against the abs spec via TLC.
+- **Cost accounting:** a per-call `UsageLedger` (`src/llm/usage.py`) records
+  tokens, latency, cached-read tokens, and an approximate `est_usd` from a
+  built-in price table; the `UsageSummary` is attached to every pipeline result.
 
 ## Known limitations
 
