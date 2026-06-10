@@ -247,6 +247,54 @@ Two legacy single-module baselines + six compositional benchmarks under
 Each new benchmark ships `prompt.txt` plus `expected_modules.yaml` (reference
 decomposition; used for evaluation diff, not driven into the pipeline).
 
+## Generated examples shipped with the repo
+
+Two directories of pre-verified bundles are checked in so reviewers can
+inspect end-to-end output without re-running the pipeline. They are
+captured artefacts, not authoritative golden files — the planner names
+parents itself, so the parent-slug on disk depends on which decomposition
+the LLM happened to choose for that run.
+
+`generated/` — most recent sweep output. One subdir per planner-chosen
+parent slug under both `tla/` and `python/`:
+
+| Benchmark slug      | Parent slug(s) under `generated/`         | Children |
+| ------------------- | ----------------------------------------- | -------- |
+| `bank_audit`        | `ledger`, `ledger_system`                 | Accounts, AuditLog |
+| `cache_store`       | `write_through_cache`                     | Cache, BackingStore |
+| `leader_log`        | `replicated_log`                          | Election, LogStore |
+| `producer_consumer` | `producer_consumer_system`                | BoundedQueue, Producer, Consumer |
+| `rw_lock`           | `rw_lock_system`                          | RWLock, Clients |
+| `two_phase_commit`  | `two_phase_commit`                        | RM1, Coordinator |
+
+`bank_audit` shows two parent slugs because earlier and later sweeps drew
+different parent names from the planner; only the most recent run's slug
+holds the verified bundle (see `report/bench_rerun*.csv`). Each verified
+subdir contains the TLA+ files (`<Name>_Abs.tla`, `<Name>_Impl.tla`,
+`<Parent>.tla`) and the refined Python package
+(`__init__.py`, `_trace.py`, `app.py`, one `<mod>.py` per child).
+`generated/work/<parent>_iter<N>/` holds each iteration's TLC scratch
+(`*_init.cfg`, `*_consec.cfg`, `*_property.cfg`, `refinement.cfg`, the
+auxiliary modules, and TLC stdout) so repair-loop behaviour is
+reconstructable post-hoc.
+
+`generated_verify/` — standalone single-benchmark runs that pre-date the
+sweep, retained as variance-discussion anchors for the report:
+
+- `cache_store/` — a different decomposition than the sweep version
+  (`BackingStore` + `FrontCache`, rather than `Cache` + `BackingStore`),
+  illustrating planner non-determinism on the same prompt.
+- `producer_consumer/` — `BoundedQueue` + `Producer` + `Consumer`.
+- `producer_consumer_pre_smoke_test/` — pre-Week-3 snapshot kept as a
+  regression anchor for the smoke-test gate.
+- `cs_run.log`, `pc_run.log`, `pc_run2.log` — full per-run logs for the
+  standalone invocations.
+
+Sweep metrics for the current `generated/` bundles live in
+`report/bench_results.csv` and the per-stage breakdown in
+`report/bench_results_by_stage.csv`; individual reruns are in
+`report/bench_rerun*.csv`.
+
 ## Efficiency instrumentation and repair-loop controls
 
 Every LLM call is tagged with a `stage` label and recorded by the usage ledger
